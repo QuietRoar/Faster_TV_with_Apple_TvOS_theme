@@ -145,4 +145,29 @@
     <!-- Cinematic top shelf (cinematic_home): the line under the focused dock app's name; %1$s is when it was
          last opened, e.g. "5 minutes ago" or "yesterday, 9:40 pm". -->
     <string name="last_opened">Last opened %1$s</string>
+    <!-- Bluetooth pill and its dropdown. -->
+    <string name="bluetooth">Bluetooth</string>
+    <string name="bt_paired">Paired devices</string>
+    <string name="bt_available">Available devices</string>
+    <string name="bt_searching">Searching for devices…</string>
+    <string name="bt_search_again">Search again</string>
+    <string name="bt_pairing">Pairing…</string>
+    <string name="bt_not_connected">Not connected</string>
+    <string name="bt_connecting">Connecting…</string>
+    <string name="bt_turn_on">Turn on Bluetooth</string>
+    <string name="bt_turning_on">Turning on…</string>
+    <string name="bt_settings">Bluetooth settings</string>
+    <!-- Control Center (tvos_style). %1$d is how many Bluetooth devices are connected. -->
+    <string name="cc_home_settings">Home settings</string>
+    <!-- The Gloss slider's value, e.g. "60%". -->
+    <string name="percent">%1$d%%</string>
+    <string name="cc_power">Power off</string>
+    <string name="cc_gloss">Gloss</string>
+    <string name="cc_assistant">Google Assistant</string>
+    <string name="cc_sleep_timer">Sleep timer</string>
+    <string name="cc_reorder">Reorder apps</string>
+    <string name="bt_off">Off</string>
+    <string name="bt_on">On</string>
+    <string name="bt_connected_count">%1$d connected</string>
+    <string name="cc_wifi_off">Not connected</string>
 </resources>

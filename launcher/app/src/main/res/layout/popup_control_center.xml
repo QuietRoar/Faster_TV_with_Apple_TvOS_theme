@@ -1,0 +1,126 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Control Center (tvos_style), laid out as tvOS 26 draws it: no panel, each control its own glass shape under
+     the clock and the toggles button. A square Power tile beside two pills, a row of two pills, a row of round
+     buttons and the Gloss slider. MainActivity fills the pills and sets the glass. -->
+<LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
+    android:id="@+id/panel"
+    android:layout_width="match_parent"
+    android:layout_height="wrap_content"
+    android:orientation="vertical"
+    android:padding="6dp"
+    android:clipChildren="false"
+    android:clipToPadding="false">
+
+    <LinearLayout
+        android:id="@+id/topBlock"
+        android:layout_width="match_parent"
+        android:layout_height="100dp"
+        android:orientation="horizontal"
+        android:clipChildren="false">
+
+        <LinearLayout
+            android:id="@+id/ccPower"
+            android:layout_width="100dp"
+            android:layout_height="100dp"
+            android:orientation="vertical"
+            android:gravity="center"
+            android:focusable="true"
+            android:clickable="true">
+
+            <ImageView
+                android:layout_width="38dp"
+                android:layout_height="38dp"
+                android:src="@drawable/ic_power"
+                android:tint="@drawable/pill_text"
+                android:duplicateParentState="true"
+                android:contentDescription="@null" />
+
+            <TextView
+                android:layout_width="wrap_content"
+                android:layout_height="wrap_content"
+                android:layout_marginTop="6dp"
+                android:text="@string/cc_power"
+                android:textColor="@drawable/pill_text"
+                android:duplicateParentState="true"
+                android:textSize="14sp"
+                android:fontFamily="@string/font_medium" />
+        </LinearLayout>
+
+        <LinearLayout
+            android:id="@+id/topPills"
+            android:layout_width="0dp"
+            android:layout_height="match_parent"
+            android:layout_weight="1"
+            android:layout_marginStart="8dp"
+            android:orientation="vertical"
+            android:clipChildren="false" />
+    </LinearLayout>
+
+    <LinearLayout
+        android:id="@+id/midPills"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="8dp"
+        android:orientation="horizontal"
+        android:clipChildren="false" />
+
+    <LinearLayout
+        android:id="@+id/roundRow"
+        android:layout_width="match_parent"
+        android:layout_height="wrap_content"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:clipChildren="false" />
+
+    <!-- Gloss: Left and Right set the strength of the icon gloss, the glass rims and the light sweep. -->
+    <LinearLayout
+        android:id="@+id/ccGloss"
+        android:layout_width="match_parent"
+        android:layout_height="46dp"
+        android:layout_marginTop="10dp"
+        android:orientation="horizontal"
+        android:gravity="center_vertical"
+        android:paddingStart="16dp"
+        android:paddingEnd="18dp"
+        android:focusable="true"
+        android:clickable="true">
+
+        <ImageView
+            android:layout_width="22dp"
+            android:layout_height="22dp"
+            android:src="@drawable/ic_gloss"
+            android:tint="@drawable/pill_text"
+            android:duplicateParentState="true"
+            android:contentDescription="@null" />
+
+        <TextView
+            android:layout_width="wrap_content"
+            android:layout_height="wrap_content"
+            android:layout_marginStart="12dp"
+            android:text="@string/cc_gloss"
+            android:textColor="@drawable/pill_text"
+            android:duplicateParentState="true"
+            android:textSize="14sp"
+            android:fontFamily="@string/font_medium" />
+
+        <com.gathin.tvhome.GlossSlider
+            android:id="@+id/glossSlider"
+            android:layout_width="0dp"
+            android:layout_height="22dp"
+            android:layout_weight="1"
+            android:layout_marginStart="14dp"
+            android:layout_marginEnd="12dp"
+            android:duplicateParentState="true" />
+
+        <TextView
+            android:id="@+id/glossValue"
+            android:layout_width="38dp"
+            android:layout_height="wrap_content"
+            android:gravity="end"
+            android:textColor="@drawable/pill_text_dim"
+            android:duplicateParentState="true"
+            android:textSize="12sp"
+            android:fontFamily="@string/font_medium" />
+    </LinearLayout>
+</LinearLayout>

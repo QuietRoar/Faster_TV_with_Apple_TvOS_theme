@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Control Center Gloss slider (tvos_style): a four-point sparkle and a small one. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M10,3c0.6,3.6 2.4,5.4 6,6c-3.6,0.6 -5.4,2.4 -6,6c-0.6,-3.6 -2.4,-5.4 -6,-6c3.6,-0.6 5.4,-2.4 6,-6z" />
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M17.5,13.5c0.3,1.7 1.1,2.5 2.8,2.8c-1.7,0.3 -2.5,1.1 -2.8,2.8c-0.3,-1.7 -1.1,-2.5 -2.8,-2.8c1.7,-0.3 2.5,-1.1 2.8,-2.8z" />
+</vector>

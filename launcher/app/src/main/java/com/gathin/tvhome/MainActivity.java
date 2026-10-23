@@ -1,9 +1,13 @@
 package com.gathin.tvhome;
 
+import android.annotation.SuppressLint;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
 import android.app.Activity;
 import android.app.Dialog;
+import android.bluetooth.BluetoothAdapter;
+import android.bluetooth.BluetoothDevice;
+import android.bluetooth.BluetoothProfile;
 import android.content.ActivityNotFoundException;
 import android.content.BroadcastReceiver;
 import android.content.ComponentName;
@@ -52,6 +56,7 @@ import android.text.Spanned;
 import android.text.TextPaint;
 import android.text.TextUtils;
 import android.text.style.ForegroundColorSpan;
+import android.util.SparseArray;
 import android.util.TypedValue;
 import android.view.Gravity;
 import android.view.KeyEvent;
@@ -86,6 +91,7 @@ import java.util.Calendar;
 import java.util.Collections;
 import java.util.HashMap;
 import java.util.HashSet;
+import java.util.LinkedHashMap;
 import java.util.List;
 import java.util.Locale;
 import java.util.Map;
@@ -171,6 +177,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private TextView greeting;
     private View clockBlock;
     private View btnInputs;
+    /** The Bluetooth pill, hidden on a TV without a Bluetooth adapter. */
+    private TextView btnBluetooth;
     /** config show_inputs_pill: false keeps the Inputs pill hidden even when the TV has inputs. */
     private boolean showInputsPill = true;
     private TextView btnWifi;
@@ -391,7 +399,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // black under it is a second full-screen fill on every frame for nothing. The starting window still uses
         // the theme's background, so launch looks the same.
         getWindow().setBackgroundDrawable(null);
+        // Before the wallpaper decodes: tvos_style's glass needs the backdrop the player makes from it.
+        LiquidGlass.enabled = cfg.topMenu && getResources().getBoolean(R.bool.tvos_style);
+        LiquidGlass.gloss = getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).getInt("gloss", 60) / 100f;
+        if (LiquidGlass.enabled) TvSounds.init(this);
         wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
+        // tvos_style: the focused top-row app's own picture over the wallpaper, when the theme brought any.
+        File themeDir = Config.dir(this);
+        if (LiquidGlass.enabled && ShelfArt.any(themeDir)) {
+            ImageView shelfView = new ImageView(this);
+            // Just over the wallpaper (the player puts it first, when there is one), under everything else.
+            int over = root.getChildCount() > 0 && root.getChildAt(0) instanceof ImageView ? 1 : 0;
+            root.addView(shelfView, over, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            shelfArt = new ShelfArt(this, shelfView, themeDir, cfg.reducedMotion);
+        }
         sky = findViewById(R.id.sky);
         sky.setIntensity(cfg.skyIntensity);
         glass = findViewById(R.id.glass);
@@ -511,13 +533,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             public void onChildViewDetachedFromWindow(@NonNull View v) {
             }
         });
-        if (dockRow) grid.addItemDecoration(new DockDecoration(COLUMNS, density, cinematic, cfg.alwaysShowNames, cfg.dockOpacity, cfg.dockGlass, cfg.dockEvenPadding));
+        if (dockRow && LiquidGlass.enabled) LiquidGlass.register(grid);
+        // tvos_style names the focused top-row icon, so the band reaches down over the names as always_show_names does.
+        if (dockRow) grid.addItemDecoration(new DockDecoration(COLUMNS, density, cinematic, cfg.alwaysShowNames || LiquidGlass.enabled, cfg.dockOpacity, cfg.dockGlass, cfg.dockEvenPadding));
         if (cfg.fadeRows) TopFade.attach(grid, 48 * density);
         // Reduced motion: the tiles are simply there, with no entrance (reloadApps skips it there too).
         if (animations && !reducedMotion) {
             grid.setLayoutAnimation(new LayoutAnimationController(
                     AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
         }
+        AppAdapter.tilt = LiquidGlass.enabled;
         adapter = new AppAdapter(this, this, COLUMNS, cfg);
         dockApps = cfg.dockApps;
         fillDockLeavesSlots = !cfg.fillDock;
@@ -607,6 +632,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST);
             else open(systemIntent(Settings.ACTION_SETTINGS));
         });
+        btnBluetooth = findViewById(R.id.btnBluetooth);
+        btnBluetooth.setOnClickListener(v -> showBluetooth());
+        btnBluetooth.setOnLongClickListener(v -> {
+            open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
+            return true;
+        });
+        if (!getResources().getBoolean(R.bool.show_bluetooth_pill) || cfg.topMenu
+                || BluetoothAdapter.getDefaultAdapter() == null) {
+            btnBluetooth.setVisibility(View.GONE);
+        }
         btnReorder = findViewById(R.id.btnReorder);
         btnReorder.setOnClickListener(v -> toggleReorder());
         btnReorder.setVisibility(cfg.reorderButton ? View.VISIBLE : View.GONE);
@@ -642,11 +677,45 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             tlp.bottomMargin = 0;
             topButtons.setLayoutParams(tlp);
             topButtons.setGravity(Gravity.CENTER_VERTICAL);
+            tvosStyle = getResources().getBoolean(R.bool.tvos_style);
+        }
+        if (tvosStyle) {
+            // Apple TV header: the greeting and the big clock row go, a small clock sits beside the gear, and
+            // the gear opens Control Center. The empty left block leaves the header as tall as the gear.
+            greeting.setVisibility(View.GONE);
+            ((View) findViewById(R.id.clock).getParent()).setVisibility(View.GONE);
+            TextView clockSmall = findViewById(R.id.clockSmall);
+            clockSmall.setVisibility(View.VISIBLE);
+            // Over a bright photo the white time needs the soft shadow tvOS puts under text on images.
+            clockSmall.setShadowLayer(10 * density, 0, density, 0x8C000000);
+            btnSettings.setOnClickListener(v -> showControlCenter());
+            // Home's own tick and tock instead of Android's click; the tiles mute themselves as they are made.
+            TvSounds.mute(root);
+            btnSettings.setBackground(new LiquidGlass.Background(btnSettings, -1, 0x1FFFFFFF, true));
+            ((TextView) btnSettings).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_control_center, 0, 0, 0);
+            if (LiquidGlass.enabled) {
+                // The frost goes over the wallpaper and the shelf, under the grid.
+                // tvOS has no ring around the focused icon: it lifts with a shadow (AppAdapter), so the slab stays off.
+                glass.setVisibility(View.GONE);
+                frost = new LiquidGlass.Frost(this);
+                root.addView(frost, root.indexOfChild(hero), new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            // The empty left block has no height, so the row would be squeezed between its top and bottom:
+            // hang it from the top of the header instead, a little lower, as tvOS spaces its corner.
+            LinearLayout topButtons = findViewById(R.id.topButtons);
+            RelativeLayout.LayoutParams tlp = (RelativeLayout.LayoutParams) topButtons.getLayoutParams();
+            tlp.removeRule(RelativeLayout.ALIGN_TOP);
+            tlp.removeRule(RelativeLayout.ALIGN_BOTTOM);
+            tlp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
+            tlp.topMargin = (int) (14 * density);
+            topButtons.setLayoutParams(tlp);
         }
         if (iconOnlyButtons) {
             if (cfg.wifiLabelWidth > 0) btnWifi.setMaxWidth(Math.round(cfg.wifiLabelWidth * density));
             else makeIconOnly(btnWifi);
             makeIconOnly((TextView) btnSettings);
+            makeIconOnly(btnBluetooth);
         }
         if (cfg.iconOnlyInputs) makeIconOnly((TextView) btnInputs);
         btnSettings.setOnLongClickListener(v -> {
@@ -673,11 +742,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         };
         btnInputs.setOnKeyListener(pillKeys);
         btnWifi.setOnKeyListener(pillKeys);
+        btnBluetooth.setOnKeyListener(pillKeys);
         btnSettings.setOnKeyListener(pillKeys);
         btnReorder.setOnKeyListener(pillKeys);
         btnLibraryTop.setOnKeyListener(pillKeys);
         if (advancedEffects) {
-            for (View button : new View[]{btnInputs, btnWifi, btnReorder, btnLibraryTop, btnSettings}) {
+            for (View button : new View[]{btnInputs, btnWifi, btnBluetooth, btnReorder, btnLibraryTop, btnSettings}) {
                 button.setOnFocusChangeListener((view, focused) -> view.animate()
                         .scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
                         .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start());
@@ -687,6 +757,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         // Hide the glass when focus leaves the tiles.
         getWindow().getDecorView().getViewTreeObserver().addOnGlobalFocusChangeListener((oldF, newF) -> {
+            if (LiquidGlass.enabled && oldF != null && newF != null) TvSounds.move();
             boolean onTile = newF != null && newF.getId() == R.id.card;
             if (!onTile) hideGlass();
         });
@@ -1127,6 +1198,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     @Override
     public boolean dispatchKeyEvent(KeyEvent event) {
+        if (LiquidGlass.enabled) TvSounds.onKey(event);
         if (handleSettingsKey(event)) return true;
         if (tileMenuEnabled && !reordering && openPopup == null && cardPrompt == null
                 && event.getKeyCode() == KeyEvent.KEYCODE_MENU) {
@@ -1213,6 +1285,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         adapter.setReordering(true);
         if (adapter.hasEmptySlots()) reloadTiles();   // every position must hold a tile that can move
         reordering = true;
+        adapter.updateJiggle(grid);
         orderAtStart = adapter.movableKeys();
         glass.setAccent(REORDER_ACCENT);
         btnReorder.setActivated(true);
@@ -1358,6 +1431,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         drop();
         reordering = false;
         adapter.setReordering(false);
+        adapter.updateJiggle(grid);
         glass.setAccent(festive ? festival.accentColor() : 0);
         btnReorder.setActivated(false);
         List<String> keys = adapter.movableKeys();
@@ -1535,6 +1609,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             springY.animateToFinalPosition(y - glassScrollShift);
         }
         View item = (View) card.getParent();
+        if (frost != null) {
+            float target = dockRow && position < COLUMNS ? 0f : 1f;
+            if (frost.getAlpha() != target) frost.animate().alpha(target).setDuration(reducedMotion ? Motion.REDUCED_MS : 380).start();
+        }
+        if (shelfArt != null && dockRow && position < COLUMNS) shelfArt.focus(adapter.packageAt(position));
         if (dockRow && position < COLUMNS) {
             // Dock: park it at the bottom of the screen and show the top shelf for this app.
             int decoratedTop = item.getTop() - (int) (6 * density);
@@ -2132,6 +2211,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** The first top-bar button after Inputs that is shown: the network pill, Reorder, then Settings (always there). */
     private View firstTopButton() {
         if (btnWifi.getVisibility() == View.VISIBLE) return btnWifi;
+        if (btnBluetooth.getVisibility() == View.VISIBLE) return btnBluetooth;
         if (btnReorder.getVisibility() == View.VISIBLE) return btnReorder;
         return findViewById(R.id.btnSettings);
     }
@@ -2450,6 +2530,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean iconOnlyButtons;
     /** config.xml top_menu: Inputs, Wi-Fi and Settings folded into one gear. */
     private boolean topMenu;
+    /** config tvos_style (with top_menu): small clock in the header, and the gear opens Control Center. */
+    private boolean tvosStyle;
+    /** tvos_style: the frosted background behind the grid rows below the dock; null otherwise. */
+    private View frost;
+    /** tvos_style: the focused top-row app's picture; null without tvos_style or shelf pictures. */
+    private ShelfArt shelfArt;
     private boolean launcherSettingsButton;
     /** icon_only_buttons without wifi_label_width: the Wi-Fi pill shows no network name. */
     private boolean wifiIconOnly;
@@ -2840,7 +2926,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     private PopupWindow glassPopup(View panel, int width) {
-        final PopupWindow popup = new PopupWindow(panel, width, ViewGroup.LayoutParams.WRAP_CONTENT, true);
+        final PopupWindow popup = new PopupWindow(LiquidGlass.enabled ? TvSounds.wrap(panel) : panel, width,
+                ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
         popup.setOutsideTouchable(true);
         popup.setAnimationStyle(0);
@@ -2849,6 +2936,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             if (openPopup == popup) openPopup = null;
         });
         openPopup = popup;
+        // tvos_style: the dropdowns are glass too, darkened enough for their white text over a bright photo.
+        if (LiquidGlass.enabled) panel.setBackground(new LiquidGlass.Background(panel, 20 * density, 0x8C141416, false));
         return popup;
     }
 
@@ -2874,6 +2963,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     private void addInputRow(LinearLayout rows, PopupWindow popup, int iconRes, String title, int state, Runnable action) {
         View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
+        TvSounds.mute(row);
         ((ImageView) row.findViewById(R.id.icon)).setImageResource(iconRes);
         ((TextView) row.findViewById(R.id.title)).setText(title);
         TextView status = row.findViewById(R.id.status);
@@ -2892,6 +2982,457 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         row.setOnClickListener(v -> {
             popup.dismiss();
+            action.run();
+        });
+        rows.addView(row);
+    }
+
+    // ---- bluetooth pill -----------------------------------------------------------------------------
+
+    /** Profiles a paired device can be reconnected through: A2DP (speakers, headphones), headset, and HID host
+     *  (keyboards, gamepads; BluetoothProfile.HID_HOST is hidden before API 28's SDK, so its value is used). */
+    private static final int[] BT_PROFILES = {BluetoothProfile.A2DP, BluetoothProfile.HEADSET, 4};
+    /** Unpaired devices listed at most, so a busy street of phones and TVs does not run the list off screen. */
+    private static final int BT_MAX_FOUND = 6;
+    /** A pairing or connection that has not been reported after this long stops showing as busy. */
+    private static final long BT_BUSY_MS = 20000;
+    private final Object btToken = new Object();
+    /** tvos_style choices made on the TV: the Gloss slider. */
+    private static final String TVOS_PREFS = "tvos";
+    /** The sleep-timer add-on's package, offered as a Control Center tile. */
+    private static final String SLEEP_TIMER = "io.github.luyzfernando08.sleeptimer";
+    private final SparseArray<BluetoothProfile> btProxies = new SparseArray<>();
+    /** Unpaired devices the open list's scan has found, in the order they were found. */
+    private final Map<String, BluetoothDevice> btFound = new LinkedHashMap<>();
+    /** Addresses this list asked to pair or connect, shown as busy until the TV reports the outcome. */
+    private final Set<String> btBusy = new HashSet<>();
+    private BroadcastReceiver btReceiver;
+    /** What the open Bluetooth list hangs from: the pill, or the gear when the pill is hidden. */
+    private View btAnchor;
+
+    // ---- control center (tvos_style) --------------------------------------------------------------------
+
+    /**
+     * Control Center, laid out as tvOS 26 draws it: no panel, each control its own glass shape hanging under the
+     * clock and the toggles button. Power and two pills, a row of pills, a row of round buttons, and the Gloss slider.
+     */
+    private void showControlCenter() {
+        View panel = getLayoutInflater().inflate(R.layout.popup_control_center, root, false);
+        int width = (int) (340 * density);
+        final PopupWindow popup = glassPopup(panel, width);
+        panel.setBackground(null);   // no panel: the controls are the glass
+
+        // Power: the sleep-timer add-on's sleep-now screen, the only way an app can put the TV to sleep. Without
+        // the add-on the tile opens the TV's settings, where the power options are.
+        View power = panel.findViewById(R.id.ccPower);
+        glassControl(power, 30 * density);
+        Intent sleepNow = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".SleepNowActivity");
+        boolean canSleep = sleepNow.resolveActivity(getPackageManager()) != null;
+        power.setOnClickListener(v -> {
+            popup.dismiss();
+            open(canSleep ? sleepNow : systemIntent(Settings.ACTION_SETTINGS));
+        });
+
+        CharSequence network = wifiIconOnly ? btnWifi.getContentDescription() : btnWifi.getText();
+        if (TextUtils.isEmpty(network)) network = getString(R.string.cc_wifi_off);
+        LinearLayout topPills = panel.findViewById(R.id.topPills);
+        View wifi = addControlPill(topPills, popup, R.drawable.ic_wifi, getString(R.string.wifi), network,
+                this::openNetworkPill);
+        // Inputs and Bluetooth open their own lists under the toggles button once this has closed.
+        addControlPill(topPills, popup, R.drawable.ic_input, getString(R.string.inputs), null,
+                () -> root.post(this::showInputs));
+
+        LinearLayout midPills = panel.findViewById(R.id.midPills);
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter != null) {
+            addControlPill(midPills, popup, R.drawable.ic_bluetooth, getString(R.string.bluetooth),
+                    bluetoothSummary(adapter), () -> root.post(this::showBluetooth));
+        }
+        Intent sleep = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".TimerActivity");
+        if (sleep.resolveActivity(getPackageManager()) != null) {
+            addControlPill(midPills, popup, R.drawable.ic_sleep, getString(R.string.cc_sleep_timer), null,
+                    () -> open(sleep));
+        }
+        if (midPills.getChildCount() == 0) midPills.setVisibility(View.GONE);
+
+        LinearLayout round = panel.findViewById(R.id.roundRow);
+        addControlRound(round, popup, R.drawable.ic_swap_vert, R.string.cc_reorder, this::toggleReorder);
+        addControlRound(round, popup, R.drawable.ic_tune, R.string.cc_home_settings,
+                () -> startActivityForResult(new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST));
+        addControlRound(round, popup, R.drawable.ic_settings, R.string.settings,
+                () -> open(systemIntent(Settings.ACTION_SETTINGS)));
+        Intent search = new Intent(Intent.ACTION_ASSIST).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+        if (search.resolveActivity(getPackageManager()) != null) {
+            addControlRound(round, popup, R.drawable.ic_mic, R.string.cc_assistant, () -> open(search));
+        }
+
+        // Gloss: Left and Right move the slider in steps of 10, and every glass surface and icon follows at once.
+        View gloss = panel.findViewById(R.id.ccGloss);
+        glassControl(gloss, -1);
+        GlossSlider slider = panel.findViewById(R.id.glossSlider);
+        TextView glossValue = panel.findViewById(R.id.glossValue);
+        int[] percent = {Math.round(LiquidGlass.gloss * 100)};
+        slider.setValue(percent[0]);
+        glossValue.setText(getString(R.string.percent, percent[0]));
+        gloss.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+            if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                percent[0] = Math.max(0, Math.min(100, percent[0] + (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 10 : -10)));
+                slider.setValue(percent[0]);
+                glossValue.setText(getString(R.string.percent, percent[0]));
+                applyGloss(percent[0]);
+            }
+            return true;
+        });
+
+        // Hang the controls under the toggles button, right-aligned with it, and let them drop in from there.
+        View toggles = findViewById(R.id.btnSettings);
+        int[] at = new int[2];
+        toggles.getLocationInWindow(at);
+        int right = root.getWidth() - (at[0] + toggles.getWidth()) - (int) (10 * density);
+        int top = at[1] + toggles.getHeight() + (int) (2 * density);
+        panel.setAlpha(0f);
+        panel.setPivotX(width);
+        panel.setPivotY(0f);
+        panel.setScaleX(0.94f);
+        panel.setScaleY(0.94f);
+        popup.showAtLocation(root, Gravity.TOP | Gravity.END, Math.max(0, right), top);
+        panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(reducedMotion ? Motion.REDUCED_MS : 240)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
+        wifi.requestFocus();
+    }
+
+    /** Gives a Control Center control its glass: see-through, tinted just enough for white text, white on focus. */
+    private void glassControl(View control, float radius) {
+        control.setBackground(new LiquidGlass.Background(control, radius, 0x47101012, true));
+        if (advancedEffects) {
+            control.setOnFocusChangeListener((view, focused) -> view.animate()
+                    .scaleX(focused ? 1.05f : 1f).scaleY(focused ? 1.05f : 1f)
+                    .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start());
+        }
+    }
+
+    /** Adds a pill to a row (side by side) or a column (stacked), with 10dp between pills. */
+    private View addControlPill(LinearLayout parent, PopupWindow popup, int iconRes, String title, CharSequence status,
+                                Runnable action) {
+        View pill = getLayoutInflater().inflate(R.layout.item_cc_pill, parent, false);
+        ((ImageView) pill.findViewById(R.id.icon)).setImageResource(iconRes);
+        ((TextView) pill.findViewById(R.id.title)).setText(title);
+        TextView statusView = pill.findViewById(R.id.status);
+        // A status that only repeats the name (the Wi-Fi pill says "Wi-Fi" when the network name is hidden) is left out.
+        if (TextUtils.isEmpty(status) || status.toString().equals(title)) statusView.setVisibility(View.GONE);
+        else statusView.setText(status);
+        glassControl(pill, -1);
+        pill.setOnClickListener(v -> {
+            popup.dismiss();
+            action.run();
+        });
+        boolean column = parent.getOrientation() == LinearLayout.VERTICAL;
+        LinearLayout.LayoutParams lp = column
+                ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f)
+                : new LinearLayout.LayoutParams(0, (int) (46 * density), 1f);
+        int gap = (int) (8 * density);
+        if (parent.getChildCount() > 0) {
+            if (column) lp.topMargin = gap;
+            else lp.setMarginStart(gap);
+        }
+        parent.addView(pill, lp);
+        return pill;
+    }
+
+    /** Adds a round glass button, spread evenly across its row. */
+    @SuppressLint("ResourceType")   // pill_text is a colour selector kept with the drawables, as the layouts use it
+    private void addControlRound(LinearLayout row, PopupWindow popup, int iconRes, int label, Runnable action) {
+        ImageView button = new ImageView(this);
+        button.setImageResource(iconRes);
+        button.setImageTintList(getColorStateList(R.drawable.pill_text));
+        button.setScaleType(ImageView.ScaleType.CENTER);
+        button.setContentDescription(getString(label));
+        button.setFocusable(true);
+        button.setClickable(true);
+        glassControl(button, -1);
+        button.setOnClickListener(v -> {
+            popup.dismiss();
+            action.run();
+        });
+        int size = (int) (46 * density);
+        if (row.getChildCount() > 0) row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
+        row.addView(button, new LinearLayout.LayoutParams(size, size));
+    }
+
+    /** The Gloss slider's value, applied to the glass and every icon, and kept for the next start. */
+    private void applyGloss(int percent) {
+        LiquidGlass.setGloss(percent / 100f);
+        for (int i = 0; i < grid.getChildCount(); i++) {
+            View card = grid.getChildAt(i).findViewById(R.id.card);
+            if (card != null) card.invalidate();
+        }
+        getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).edit().putInt("gloss", percent).apply();
+    }
+
+    /** "2 connected", "On" or "Off", read once as the panel opens. */
+    private String bluetoothSummary(BluetoothAdapter adapter) {
+        try {
+            if (!adapter.isEnabled()) return getString(R.string.bt_off);
+            int connected = 0;
+            for (BluetoothDevice device : adapter.getBondedDevices()) if (btConnected(device)) connected++;
+            return connected > 0 ? getString(R.string.bt_connected_count, connected) : getString(R.string.bt_on);
+        } catch (SecurityException e) {
+            return null;
+        }
+    }
+
+    /** The Bluetooth dropdown: paired devices (connected first), then devices found by a scan, then Settings. */
+    private void showBluetooth() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            Toast.makeText(this, R.string.not_available, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        // Under the pill, or under the gear when the pill is hidden (top_menu and Control Center).
+        btAnchor = btnBluetooth.getVisibility() == View.VISIBLE ? btnBluetooth : findViewById(R.id.btnSettings);
+        View panel = getLayoutInflater().inflate(R.layout.popup_bluetooth, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        int width = Math.max(btAnchor.getWidth(), (int) (300 * density));
+        final PopupWindow popup = glassPopup(panel, width);
+        btFound.clear();
+        btBusy.clear();
+        btReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                String action = intent.getAction();
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (BluetoothDevice.ACTION_FOUND.equals(action) || BluetoothDevice.ACTION_NAME_CHANGED.equals(action)) {
+                    // Nameless devices (beacons, most phones' BLE adverts) are left out: there is nothing to pick.
+                    if (device == null || device.getBondState() == BluetoothDevice.BOND_BONDED
+                            || TextUtils.isEmpty(device.getName())) return;
+                    if (btFound.size() >= BT_MAX_FOUND && !btFound.containsKey(device.getAddress())) return;
+                    btFound.put(device.getAddress(), device);
+                } else if (BluetoothDevice.ACTION_BOND_STATE_CHANGED.equals(action) && device != null) {
+                    int state = intent.getIntExtra(BluetoothDevice.EXTRA_BOND_STATE, BluetoothDevice.BOND_NONE);
+                    if (state == BluetoothDevice.BOND_BONDED) {
+                        btFound.remove(device.getAddress());
+                        // Paired from this list: connect it too, as Settings does. It stays busy until it connects.
+                        if (btBusy.contains(device.getAddress())) connectBluetooth(device);
+                    } else if (state == BluetoothDevice.BOND_NONE) {
+                        btBusy.remove(device.getAddress());
+                    }
+                } else if (BluetoothDevice.ACTION_ACL_CONNECTED.equals(action) && device != null) {
+                    btBusy.remove(device.getAddress());
+                } else if (BluetoothAdapter.ACTION_STATE_CHANGED.equals(action)
+                        && intent.getIntExtra(BluetoothAdapter.EXTRA_STATE, -1) == BluetoothAdapter.STATE_ON) {
+                    adapter.startDiscovery();
+                }
+                if (popup.isShowing()) fillBluetoothRows(rows, popup, adapter);
+            }
+        };
+        IntentFilter filter = new IntentFilter(BluetoothDevice.ACTION_FOUND);
+        filter.addAction(BluetoothDevice.ACTION_NAME_CHANGED);
+        filter.addAction(BluetoothDevice.ACTION_BOND_STATE_CHANGED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_CONNECTED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        filter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_STARTED);
+        filter.addAction(BluetoothAdapter.ACTION_DISCOVERY_FINISHED);
+        registerReceiver(btReceiver, filter);
+        BluetoothProfile.ServiceListener proxies = new BluetoothProfile.ServiceListener() {
+            @Override public void onServiceConnected(int profile, BluetoothProfile proxy) {
+                btProxies.put(profile, proxy);
+            }
+            @Override public void onServiceDisconnected(int profile) {
+                btProxies.remove(profile);
+            }
+        };
+        for (int profile : BT_PROFILES) {
+            try {
+                adapter.getProfileProxy(this, proxies, profile);
+            } catch (RuntimeException ignored) {
+                // A profile this TV does not have.
+            }
+        }
+        popup.setOnDismissListener(() -> {
+            if (openPopup == popup) openPopup = null;
+            closeBluetooth(adapter);
+        });
+        try {
+            fillBluetoothRows(rows, popup, adapter);
+            if (adapter.isEnabled()) adapter.startDiscovery();
+        } catch (SecurityException e) {
+            // Android 12+ without the nearby-devices permission: the system page can still do all of it.
+            popup.dismiss();
+            open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
+            return;
+        }
+        int alignment = getResources().getBoolean(R.bool.rtl_menu_bar) ? Gravity.START : Gravity.END;
+        dropIn(popup, panel, btAnchor, alignment);
+        rows.getChildAt(0).requestFocus();
+    }
+
+    private void closeBluetooth(BluetoothAdapter adapter) {
+        handler.removeCallbacksAndMessages(btToken);
+        if (btReceiver != null) {
+            try {
+                unregisterReceiver(btReceiver);
+            } catch (IllegalArgumentException ignored) {
+                // Already unregistered.
+            }
+            btReceiver = null;
+        }
+        try {
+            adapter.cancelDiscovery();
+        } catch (SecurityException ignored) {
+            // Nothing was started without the permission.
+        }
+        for (int i = 0; i < btProxies.size(); i++) adapter.closeProfileProxy(btProxies.keyAt(i), btProxies.valueAt(i));
+        btProxies.clear();
+    }
+
+    /** Rebuilds the list in place, keeping focus on the same row, as devices are found, pair and connect. */
+    private void fillBluetoothRows(LinearLayout rows, PopupWindow popup, BluetoothAdapter adapter) {
+        View focused = rows.findFocus();
+        Object focusKey = focused == null ? null : focused.getTag();
+        rows.removeAllViews();
+        if (!adapter.isEnabled()) {
+            boolean turningOn = adapter.getState() == BluetoothAdapter.STATE_TURNING_ON;
+            addBluetoothRow(rows, popup, "on", getString(turningOn ? R.string.bt_turning_on : R.string.bt_turn_on),
+                    null, false, false, () -> {
+                        if (!adapter.enable()) open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
+                    });
+        } else {
+            List<BluetoothDevice> paired = new ArrayList<>(adapter.getBondedDevices());
+            Collections.sort(paired, (a, b) -> {
+                boolean ca = btConnected(a), cb = btConnected(b);
+                if (ca != cb) return ca ? -1 : 1;
+                return btName(a).compareToIgnoreCase(btName(b));
+            });
+            if (!paired.isEmpty()) addBluetoothHeader(rows, getString(R.string.bt_paired));
+            for (BluetoothDevice device : paired) {
+                boolean connected = btConnected(device);
+                boolean busy = btBusy.contains(device.getAddress());
+                String status = connected ? getString(R.string.connected)
+                        : busy ? getString(R.string.bt_connecting) : getString(R.string.bt_not_connected);
+                // A connected device opens Settings rather than disconnecting: the remote itself is in this list.
+                addBluetoothRow(rows, popup, device.getAddress(), btName(device), status, connected, connected, () -> {
+                    if (connected) {
+                        open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
+                    } else if (connectBluetooth(device)) {
+                        fillBluetoothRows(rows, popup, adapter);
+                    } else {
+                        popup.dismiss();
+                        open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
+                    }
+                });
+            }
+            addBluetoothHeader(rows, getString(adapter.isDiscovering() ? R.string.bt_searching : R.string.bt_available));
+            for (BluetoothDevice device : btFound.values()) {
+                boolean busy = btBusy.contains(device.getAddress());
+                addBluetoothRow(rows, popup, device.getAddress(), btName(device),
+                        busy ? getString(R.string.bt_pairing) : null, false, false, () -> {
+                            if (btBusy.contains(device.getAddress())) return;
+                            adapter.cancelDiscovery();   // pairing is slow and flaky while a scan runs
+                            if (device.createBond()) markBluetoothBusy(device, rows, popup, adapter);
+                        });
+            }
+            if (btFound.isEmpty() && !adapter.isDiscovering()) {
+                addBluetoothRow(rows, popup, "scan", getString(R.string.bt_search_again), null, false, false,
+                        adapter::startDiscovery);
+            }
+        }
+        addSeparator(rows);
+        addBluetoothRow(rows, popup, "settings", getString(R.string.bt_settings), null, false, true,
+                () -> open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS)));
+        fitBluetoothPopup(rows, popup);
+        if (focusKey != null) {
+            for (int i = 0; i < rows.getChildCount(); i++) {
+                View row = rows.getChildAt(i);
+                if (focusKey.equals(row.getTag())) { row.requestFocus(); return; }
+            }
+            View first = firstFocusableRow(rows);
+            if (first != null) first.requestFocus();
+        }
+    }
+
+    /** Grows the dropdown with its list, but never past the bottom of the screen: the list scrolls instead. */
+    private void fitBluetoothPopup(LinearLayout rows, PopupWindow popup) {
+        int[] at = new int[2];
+        btAnchor.getLocationInWindow(at);
+        int below = root.getHeight() - (at[1] + btAnchor.getHeight()) - (int) (34 * density);
+        rows.measure(View.MeasureSpec.makeMeasureSpec(popup.getWidth(), View.MeasureSpec.EXACTLY),
+                View.MeasureSpec.UNSPECIFIED);
+        int wanted = rows.getMeasuredHeight() + (int) (12 * density);   // the panel's padding
+        int height = below > 0 ? Math.min(wanted, below) : wanted;
+        if (popup.isShowing()) popup.update(popup.getWidth(), height);
+        else popup.setHeight(height);
+    }
+
+    private static View firstFocusableRow(LinearLayout rows) {
+        for (int i = 0; i < rows.getChildCount(); i++) {
+            if (rows.getChildAt(i).isFocusable()) return rows.getChildAt(i);
+        }
+        return null;
+    }
+
+    private void markBluetoothBusy(BluetoothDevice device, LinearLayout rows, PopupWindow popup, BluetoothAdapter adapter) {
+        btBusy.add(device.getAddress());
+        handler.postAtTime(() -> {
+            if (btBusy.remove(device.getAddress()) && popup.isShowing()) fillBluetoothRows(rows, popup, adapter);
+        }, btToken, android.os.SystemClock.uptimeMillis() + BT_BUSY_MS);
+    }
+
+    /** Asks each profile proxy to connect the device; true when at least one accepted the request. The connect
+     *  methods are hidden API, reachable on the Android 9 TVs this targets; false sends the caller to Settings. */
+    private boolean connectBluetooth(BluetoothDevice device) {
+        boolean asked = false;
+        for (int i = 0; i < btProxies.size(); i++) {
+            BluetoothProfile proxy = btProxies.valueAt(i);
+            try {
+                Object ok = proxy.getClass().getMethod("connect", BluetoothDevice.class).invoke(proxy, device);
+                asked |= Boolean.TRUE.equals(ok);
+            } catch (ReflectiveOperationException | RuntimeException ignored) {
+                // Not reachable on this build, or not a profile the device has.
+            }
+        }
+        if (asked) btBusy.add(device.getAddress());
+        return asked;
+    }
+
+    private static boolean btConnected(BluetoothDevice device) {
+        try {
+            return Boolean.TRUE.equals(BluetoothDevice.class.getMethod("isConnected").invoke(device));
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return false;
+        }
+    }
+
+    private static String btName(BluetoothDevice device) {
+        String name = device.getName();
+        return TextUtils.isEmpty(name) ? device.getAddress() : name;
+    }
+
+    private void addBluetoothHeader(LinearLayout rows, String title) {
+        TextView header = new TextView(this);
+        header.setText(title.toUpperCase(Locale.getDefault()));
+        header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 10);
+        header.setLetterSpacing(0.12f);
+        header.setTextColor(0x80FFFFFF);
+        int h = (int) (12 * density);
+        header.setPadding(h, (int) (8 * density), h, (int) (4 * density));
+        rows.addView(header);
+    }
+
+    private void addBluetoothRow(LinearLayout rows, PopupWindow popup, String key, String title, String status,
+                                 boolean dot, boolean dismiss, Runnable action) {
+        View row = getLayoutInflater().inflate(R.layout.item_input, rows, false);
+        TvSounds.mute(row);
+        row.setTag(key);
+        ((ImageView) row.findViewById(R.id.icon)).setImageResource(
+                "settings".equals(key) ? R.drawable.ic_settings : R.drawable.ic_bluetooth);
+        ((TextView) row.findViewById(R.id.title)).setText(title);
+        TextView statusView = row.findViewById(R.id.status);
+        if (status == null) statusView.setVisibility(View.GONE);
+        else statusView.setText(status);
+        row.findViewById(R.id.dot).setVisibility(dot ? View.VISIBLE : View.GONE);
+        row.setOnClickListener(v -> {
+            if (dismiss) popup.dismiss();
             action.run();
         });
         rows.addView(row);

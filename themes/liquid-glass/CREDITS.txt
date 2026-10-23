@@ -1,0 +1,13 @@
+File	Title	Author	Licence	Source
+01.jpg	Verkhoyansk Range, Republic of Sakha (Yakutia), Russia - 2019	Ilya Varlamov	CC BY-SA 3.0	https://commons.wikimedia.org/wiki/File:Verkhoyansk_Range,_Republic_of_Sakha_(Yakutia),_Russia_-_2019.jpg
+02.jpg	Sweet Bread Mountain	Donatas Dabravolskas	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Sweet_Bread_Mountain.jpg
+03.jpg	1 lake louise pano 2019	Chensiyuan	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:1_lake_louise_pano_2019.jpg
+04.jpg	Karst peaks with sea of clouds at sunrise, South view from the top of Mount Nam Xay, Vang Vieng, Laos	Basile Morin	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Karst_peaks_with_sea_of_clouds_at_sunrise,_South_view_from_the_top_of_Mount_Nam_Xay,_Vang_Vieng,_Laos.jpg
+05.jpg	Lake in Dome Creek	Jakub Fryš	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Lake_in_Dome_Creek.jpg
+06.jpg	Watzmann mit Schönfeldspitze	Jörg Braukmann	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Watzmann_mit_Sch%C3%B6nfeldspitze.jpg
+07.jpg	Vera C Rubin Observatory in the Snow (IMG 0315-CC)	NOIRLab/NSF/AURA/C. Corco	CC BY 4.0	https://commons.wikimedia.org/wiki/File:Vera_C_Rubin_Observatory_in_the_Snow_(IMG_0315-CC).jpg
+08.jpg	Padar Island, Komodo National Park, Indonesia, 20250822 0929 2659	Jakub Hałun	CC BY 4.0	https://commons.wikimedia.org/wiki/File:Padar_Island,_Komodo_National_Park,_Indonesia,_20250822_0929_2659.jpg
+09.jpg	Princetown (AU), Port Campbell National Park, Twelve Apostles -- 2019 -- 0969	Dietmar Rabich	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Princetown_(AU),_Port_Campbell_National_Park,_Twelve_Apostles_--_2019_--_0969.jpg
+10.jpg	Área de Proteção Ambiental da Baleia Franca Claudio Seelig (01)	Ctseelig	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:%C3%81rea_de_Prote%C3%A7%C3%A3o_Ambiental_da_Baleia_Franca_Claudio_Seelig_(01).jpg
+11.jpg	Silver Lake Mammoth September 2016 001	King of Hearts	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:Silver_Lake_Mammoth_September_2016_001.jpg
+12.jpg	21-224-5054 NNP Synevyr RB 18	Rbrechko	CC BY-SA 4.0	https://commons.wikimedia.org/wiki/File:21-224-5054_NNP_Synevyr_RB_18.jpg

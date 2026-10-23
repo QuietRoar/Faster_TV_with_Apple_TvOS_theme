@@ -91,6 +91,20 @@ if [ -d "$THEME/wallpapers" ]; then
     esac
   done
 fi
+# tvos_style's top-shelf pictures, one per app (shelf/<package>.jpg); a theme without them leaves none behind.
+tv "mkdir -p $DIR/shelf 2>/dev/null; rm -f $DIR/shelf/* 2>/dev/null; content delete --uri $URI/shelf 2>/dev/null" >/dev/null
+if [ -d "$THEME/shelf" ]; then
+  for IMAGE in "$THEME"/shelf/*; do
+    [ -f "$IMAGE" ] || continue
+    case "$IMAGE" in
+      *.jpg|*.jpeg|*.png|*.webp|*.JPG|*.JPEG|*.PNG|*.WEBP)
+        NAME=$(basename "$IMAGE")
+        [[ "$NAME" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "unsupported shelf filename: $NAME" >&2; exit 1; }
+        "$PY" -I b64push.py "$IMAGE" "$(stage "shelf/$NAME")"
+        tv "$(put "shelf/$NAME")" >/dev/null ;;
+    esac
+  done
+fi
 # The collection's names (wallpaper_captions); a theme without them leaves no stale names behind.
 if [ -f "$THEME/wallpapers/captions.txt" ]; then
   "$PY" -I b64push.py "$THEME/wallpapers/captions.txt" "$(stage wallpapers/captions.txt)"

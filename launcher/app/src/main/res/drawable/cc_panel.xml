@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Control Center panel (tvos_style): glass_panel's smoky gradient, rounder and a touch more opaque, since it
+     sits over the top shelf's colour rather than over black. -->
+<shape xmlns:android="http://schemas.android.com/apk/res/android" android:shape="rectangle">
+    <gradient android:angle="270" android:startColor="#FC242428" android:endColor="#FE141416" />
+    <stroke android:width="1dp" android:color="#29FFFFFF" />
+    <corners android:radius="28dp" />
+</shape>

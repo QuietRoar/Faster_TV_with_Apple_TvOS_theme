@@ -1,0 +1,16 @@
+{
+  "wallpaper": true,
+  "wallpaper_rotation_minutes": 30,
+  "background_color": "#000000",
+  "columns": 5,
+  "top_menu": true,
+  "dock_title": false,
+  "dock_glass": true,
+  "cinematic_home": true,
+  "cinematic_art": 0,
+  "cinematic_scrim": 45,
+  "cinematic_dots": false,
+  "cinematic_white_focus": true,
+  "ambient_glow": false,
+  "focus_overshoot": false
+}

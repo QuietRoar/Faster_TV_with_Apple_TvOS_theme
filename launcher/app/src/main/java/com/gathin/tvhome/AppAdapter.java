@@ -1,5 +1,9 @@
 package com.gathin.tvhome;
 
+import java.util.Random;
+import android.app.ActivityOptions;
+import android.animation.ValueAnimator;
+import android.animation.ObjectAnimator;
 import android.app.Activity;
 import android.content.ActivityNotFoundException;
 import android.content.ComponentName;
@@ -47,6 +51,12 @@ import java.util.Set;
  * (by label), the rest is alphabetical.
  */
 public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
+    /** tvos_style: focused tiles tilt in from the direction focus moved (set before the adapter is made). */
+    static boolean tilt;
+    /** The last arrow key a tile handled, which says which way the tilt leans. */
+    private static int lastMoveKey;
+    private final Random jiggleRandom = new Random();
+
 
     interface TileListener {
         void onTileFocused(int position, View card);
@@ -402,6 +412,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             v.setPadding(v.getPaddingLeft(), pad, v.getPaddingRight(), pad);
         }
         name.setLayoutParams(nameLp);
+        TvSounds.mute(v);   // tvos_style plays its own focus sounds
         return new Holder(v, listener, animations, advancedEffects, reducedMotion, restNameAlpha, focusOvershoot);
     }
 
@@ -425,13 +436,15 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         h.card.setFocusable(true);
         h.name.setText(e.name);
         // The dock has no labels, unless always_show_names asks for them (DockDecoration then makes room in the band).
-        h.name.setVisibility(dockRow && position < dockSize && restNameAlpha == 0f ? View.INVISIBLE : View.VISIBLE);
+        // tvos_style names the focused top-row icon too, as tvOS does (DockDecoration makes room in the band).
+        h.name.setVisibility(dockRow && position < dockSize && restNameAlpha == 0f && !tilt ? View.INVISIBLE : View.VISIBLE);
         boolean focused = h.card.isFocused();   // a rebind after reload() can hit the focused tile
         h.name.setAlpha(focused ? 1f : restNameAlpha);
         h.card.setScaleX(focused && animations ? focusScale() : 1f);
         h.card.setScaleY(focused && animations ? focusScale() : 1f);
-        h.card.setTranslationY(focused && advancedEffects ? -4f * ctx.getResources().getDisplayMetrics().density : 0f);
-        h.card.setTranslationZ(focused && advancedEffects ? 8f * ctx.getResources().getDisplayMetrics().density : 0f);
+        h.card.setTranslationY(focused && (advancedEffects || tilt) ? -4f * ctx.getResources().getDisplayMetrics().density : 0f);
+        h.card.setTranslationZ(focused && (advancedEffects || tilt) ? liftDp() * ctx.getResources().getDisplayMetrics().density : 0f);
+        jiggle(h, reordering && tilt);
         h.banner.setScaleX(focused && advancedEffects ? 1.035f : 1f);
         h.banner.setScaleY(focused && advancedEffects ? 1.035f : 1f);
         // A fully opaque banner covers the whole card (centerCrop), so the card's own fill under it is drawn for
@@ -450,7 +463,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             h.label.setText(e.label);
             h.label.setVisibility(View.VISIBLE);
         }
-        h.card.setOnClickListener(v -> launch(e));
+        h.card.setOnClickListener(v -> launch(e, v));
         h.card.setOnLongClickListener(v -> {
             if (tileMenu) {
                 int pos = h.getBindingAdapterPosition();
@@ -468,7 +481,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     /** Opens the tile's activity by explicit component, with no extras: a card can name nothing else. */
-    private void launch(Entry e) {
+    private void launch(Entry e, View from) {
         if (e.kind == Entry.HOME_SETTINGS) {
             ctx.startActivity(new Intent(ctx, HomeSettingsActivity.class)
                     .addFlags(Intent.FLAG_ACTIVITY_NEW_TASK));
@@ -488,9 +501,14 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (ctx.getPackageManager().resolveActivity(byAction, 0) != null) i = byAction;
         }
         try {
-            ctx.startActivity(i);
+            if (tilt && animations && !reducedMotion && from.getWidth() > 0) {
+                // tvOS: the app grows out of its icon.
+                ctx.startActivity(i, ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle());
+            } else {
+                ctx.startActivity(i);
+            }
             if (cinematic) LastOpened.record(ctx, e.pkg);
-            if (advancedEffects && !reducedMotion && ctx instanceof Activity) {
+            if (advancedEffects && !tilt && !reducedMotion && ctx instanceof Activity) {
                 ((Activity) ctx).overridePendingTransition(R.anim.app_open_enter, R.anim.app_open_exit);
             }
         } catch (Exception ex) {
@@ -538,6 +556,38 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** Reorder mode on or off; takes effect at the next reload() (empty dock slots are left out while on). */
     void setReordering(boolean on) {
         reordering = on;
+    }
+
+    /** tvos_style: the bound tiles start or stop wobbling with reorder mode, as tvOS icons do while you move them. */
+    void updateJiggle(RecyclerView grid) {
+        for (int i = 0; i < grid.getChildCount(); i++) {
+            RecyclerView.ViewHolder vh = grid.getChildViewHolder(grid.getChildAt(i));
+            if (vh instanceof Holder) jiggle((Holder) vh, reordering && tilt);
+        }
+    }
+
+    private void jiggle(Holder h, boolean on) {
+        ObjectAnimator wobble = (ObjectAnimator) h.card.getTag(R.id.jiggle);
+        if (on == (wobble != null)) return;
+        if (!on) {
+            wobble.cancel();
+            h.card.setTag(R.id.jiggle, null);
+            h.card.setRotation(0f);
+            return;
+        }
+        // Each tile its own speed and start, so the row wobbles loosely rather than in step.
+        wobble = ObjectAnimator.ofFloat(h.card, View.ROTATION, -1.6f, 1.6f);
+        wobble.setDuration(120 + jiggleRandom.nextInt(40));
+        wobble.setRepeatCount(ValueAnimator.INFINITE);
+        wobble.setRepeatMode(ValueAnimator.REVERSE);
+        wobble.setStartDelay(jiggleRandom.nextInt(120));
+        h.card.setTag(R.id.jiggle, wobble);
+        wobble.start();
+    }
+
+    /** How far a focused tile rises toward the viewer, in dp: tvos_style casts a deeper shadow. */
+    static float liftDp() {
+        return tilt ? 20f : 8f;
     }
 
     boolean hasEmptySlots() {
@@ -612,7 +662,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     }
 
     float focusScale() {
-        return !animations ? 1f : advancedEffects ? 1.12f : 1.10f;
+        return !animations ? 1f : tilt ? 1.17f : advancedEffects ? 1.12f : 1.10f;
     }
 
     /** A vivid colour sampled from the app's banner (or icon), cached per entry; a card's accent when it set one. */
@@ -687,6 +737,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         /** Alpha of the name while the tile is not focused (always_show_names). */
         final float restNameAlpha;
         final boolean overshoot;
+        /** tvos_style: the icon's glass, which also carries the band of light on focus; null otherwise. */
+        final IconGloss gloss;
 
         Holder(View v, TileListener listener, boolean animations, boolean advancedEffects,
                boolean reducedMotion, float restNameAlpha, boolean overshoot) {
@@ -712,9 +764,12 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
             });
             card.setClipToOutline(true);
+            gloss = tilt ? new IconGloss(density) : null;
+            if (gloss != null) card.setForeground(gloss);
 
             card.setOnKeyListener((view, keyCode, event) -> {
                 if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+                lastMoveKey = keyCode;
                 if (keyCode != KeyEvent.KEYCODE_DPAD_UP && keyCode != KeyEvent.KEYCODE_DPAD_DOWN
                         && keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
                 int pos = getBindingAdapterPosition();
@@ -723,9 +778,21 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
             card.setOnFocusChangeListener((view, focused) -> {
                 view.animate().cancel();
+                if (tilt && animations && !reducedMotion) {
+                    // tvOS parallax with a D-pad: the tile arrives tilted toward the way focus moved and settles flat.
+                    float deg = focused ? 9f : 0f;
+                    view.setCameraDistance(10000 * density);
+                    view.setRotationY(lastMoveKey == KeyEvent.KEYCODE_DPAD_RIGHT ? -deg
+                            : lastMoveKey == KeyEvent.KEYCODE_DPAD_LEFT ? deg : 0f);
+                    view.setRotationX(lastMoveKey == KeyEvent.KEYCODE_DPAD_DOWN ? deg
+                            : lastMoveKey == KeyEvent.KEYCODE_DPAD_UP ? -deg : 0f);
+                    view.animate().rotationX(0f).rotationY(0f);
+                }
                 banner.animate().cancel();
                 name.animate().cancel();
-                float scale = !animations ? 1f : advancedEffects ? 1.12f : 1.10f;
+                float scale = !animations ? 1f : tilt ? 1.17f : advancedEffects ? 1.12f : 1.10f;
+                boolean lift = focused && (advancedEffects || tilt);
+                if (focused && gloss != null && animations && !reducedMotion) gloss.sweep();
                 float s = focused ? scale : 1f;
                 if (!animations) {
                     view.setScaleX(1f);
@@ -740,8 +807,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     // A short zoom with no hardware layer: building a layer for so short an animation costs more
                     // frames than it saves. The name just appears instead of fading.
                     view.animate().scaleX(s).scaleY(s)
-                            .translationY(focused && advancedEffects ? -4f * density : 0f)
-                            .translationZ(focused && advancedEffects ? 8f * density : 0f)
+                            .translationY(lift ? -4f * density : 0f)
+                            .translationZ(lift ? liftDp() * density : 0f)
                             .setDuration(focused ? Motion.REDUCED_MS : 60)
                             .setInterpolator(new DecelerateInterpolator())
                             .start();
@@ -752,8 +819,8 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                     if (focused) name.setTranslationY(density * 4f);
                 } else {
                     view.animate().scaleX(s).scaleY(s)
-                            .translationY(focused && advancedEffects ? -4f * density : 0f)
-                            .translationZ(focused && advancedEffects ? 8f * density : 0f)
+                            .translationY(lift ? -4f * density : 0f)
+                            .translationZ(lift ? liftDp() * density : 0f)
                             .setDuration(advancedEffects ? (focused ? 220 : 170) : (focused ? 260 : 180))
                             .setInterpolator(focused && !overshoot ? new DecelerateInterpolator(1.5f)
                                     : new OvershootInterpolator(focused ? (advancedEffects ? 0.7f : 1.6f) : 0f))

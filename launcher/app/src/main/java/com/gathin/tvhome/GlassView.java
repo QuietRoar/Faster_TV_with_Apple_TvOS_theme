@@ -20,6 +20,11 @@ public class GlassView extends View {
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint glow = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final RectF rect = new RectF();
+    /** tvos_style: a band of light that crosses the slab once after each move; progress 0 to 1, or -1 when idle. */
+    private final Paint sweep = new Paint(Paint.ANTI_ALIAS_FLAG);
+    private final android.graphics.Matrix sweepMatrix = new android.graphics.Matrix();
+    private android.animation.ValueAnimator sweepAnimator;
+    private float sweepProgress = -1f;
     private final float density;
     private float radius;
     /** Glow colour as 0xRRGGBB: white normally, a festival's accent (diya gold) while a festive skin is on. */
@@ -56,6 +61,30 @@ public class GlassView extends View {
             rim.setColor(0xE6000000 | (r << 16) | (g << 8) | b);
         }
         invalidate();
+    }
+
+    /** Sends the band of light across the slab, left to right, as tvOS icons catch the light. */
+    void sweep() {
+        if (sweepAnimator != null) sweepAnimator.cancel();
+        if (sweep.getShader() == null) {
+            // A unit band, moved and stretched onto the slab by sweepMatrix every frame.
+            sweep.setShader(new LinearGradient(0, 0, 1, 0, new int[]{0x00FFFFFF, 0x59FFFFFF, 0x00FFFFFF},
+                    null, Shader.TileMode.CLAMP));
+        }
+        sweepAnimator = android.animation.ValueAnimator.ofFloat(0f, 1f).setDuration(750);
+        sweepAnimator.setStartDelay(120);
+        sweepAnimator.setInterpolator(new android.view.animation.AccelerateDecelerateInterpolator());
+        sweepAnimator.addUpdateListener(a -> {
+            sweepProgress = (float) a.getAnimatedValue();
+            invalidate();
+        });
+        sweepAnimator.addListener(new android.animation.AnimatorListenerAdapter() {
+            @Override public void onAnimationEnd(android.animation.Animator animation) {
+                sweepProgress = -1f;
+                invalidate();
+            }
+        });
+        sweepAnimator.start();
     }
 
     void setRadius(float px) {
@@ -96,6 +125,16 @@ public class GlassView extends View {
         canvas.clipRect(rect.left, rect.top, rect.right, rect.top + rect.height() * 0.45f);
         canvas.drawRoundRect(rect, radius, radius, specular);
         canvas.restore();
+
+        if (sweepProgress >= 0f) {
+            // The band is 40% of the slab wide and slanted, travelling from off the left edge to off the right.
+            float band = rect.width() * 0.4f;
+            sweepMatrix.setScale(band, 1f);
+            sweepMatrix.postSkew(-0.35f, 0f);
+            sweepMatrix.postTranslate(rect.left - band + (rect.width() + band * 2) * sweepProgress - band / 2f, 0f);
+            sweep.getShader().setLocalMatrix(sweepMatrix);
+            canvas.drawRoundRect(rect, radius, radius, sweep);
+        }
 
         canvas.drawRoundRect(rect, radius, radius, rim);
     }

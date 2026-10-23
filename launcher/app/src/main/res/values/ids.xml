@@ -1,0 +1,5 @@
+<?xml version="1.0" encoding="utf-8"?>
+<resources>
+    <!-- tvos_style: a tile's reorder-mode wobble animator, kept on the card. -->
+    <item name="jiggle" type="id" />
+</resources>

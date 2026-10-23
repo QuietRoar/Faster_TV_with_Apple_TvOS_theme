@@ -40,6 +40,15 @@
             android:launchMode="singleInstance"
             android:theme="@style/Warning" />
 
+        <!-- Sleep now, with no screen: the launcher's Control Center Power tile. Sleeping is what the remote's power
+             key does anyway, so any app may ask. -->
+        <activity
+            android:name=".SleepNowActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <!-- Exported only to callers holding WRITE_SECURE_SETTINGS (the adb shell), for the TEST action. -->
         <receiver
             android:name=".AlarmReceiver"

@@ -20,6 +20,7 @@ powershell -ExecutionPolicy Bypass -File tools\theme.ps1 -TvHost 192.168.1.50 th
 | `glass/` | Dark navy wallpaper with soft teal and violet light, the cinematic top shelf, a frosted-glass dock, icon-only buttons and the focus glow in the app's colour, gliding without overshoot | <img src="glass/screenshot.jpg" width="320" alt="glass theme"> |
 | `ruska/` | A Finnish autumn ("ruska") dusk over a lake: spruce shoreline, birches in autumn colour, a few falling leaves, drawn in code by `make_wallpaper.py`. The app-colour glow stays off the picture so the autumn colours keep their own light; the dock is 70% opaque so the lake shows through, and the focus glows in the app's colour without overshoot | <img src="ruska/screenshot.jpg" width="320" alt="ruska theme"> |
 | `scenes/` | 14 dark illustrated landscapes in `wallpapers/`, a new one every hour; drawn from code by `tools/scenes_wallpapers.py` | <img src="scenes/screenshot.jpg" width="320" alt="scenes theme"> |
+| `liquid-glass/` | Apple TV style with tvOS 26 Liquid Glass (needs `tvos_style` in config.xml): 12 Creative Commons landscape photos in `wallpapers/` (credits in `CREDITS.txt`), a new one every 30 minutes, a brand-colour gradient per top-row app in `shelf/` (drawn by `make_shelf.py`), a frosted glass dock and Control Center, white focus and no app name over the picture | <img src="liquid-glass/screenshot.jpg" width="320" alt="liquid-glass theme"> |
 | `six-columns/` | Six smaller tiles per row and one grid row visible under the dock | <img src="six-columns/screenshot.jpg" width="320" alt="six-columns theme"> |
 
 Every theme folder has a `screenshot.jpg` of Home with that theme on a real TV. `tools/theme.sh` never
@@ -56,6 +57,8 @@ A new key needs one there in the same pull request.
 | `reorder_button` | bool | A reorder button in the top bar (`false` by default); reordering is always in the Settings button's long-press menu |
 | `show_network_pill` | bool | The Wi-Fi/Ethernet pill in the top bar (`true` by default); `false` hides it |
 | `show_inputs_pill` | bool | The Inputs pill in the top bar, shown when the TV has inputs (`true` by default); `false` hides it; what the remote's Input button does is unchanged |
+| `show_bluetooth_pill` | bool | The Bluetooth pill in the top bar, listing paired and nearby devices (`true` by default, hidden on TVs without Bluetooth); config.xml only, a theme cannot set it |
+| `tvos_style` | bool | Apple TV header with `top_menu`: a small clock beside the gear instead of the greeting and big clock, and the gear opens a Control Center panel (clock, Inputs, Wi-Fi, Bluetooth, Reorder, Home settings, Settings); config.xml only |
 | `icon_only_buttons` | bool | Wi-Fi and Settings as round icon buttons; Inputs keeps its label (`false` by default) |
 | `icon_only_inputs` | bool | The Inputs pill as a round icon button too, its label kept as the TalkBack description (`false` by default). Works with or without `icon_only_buttons` |
 | `top_menu` | bool | Inputs, Wi-Fi and Settings folded into one round gear, centred on the header: OK drops a menu with the three, hold OK keeps the launcher menu (`false` by default) |
