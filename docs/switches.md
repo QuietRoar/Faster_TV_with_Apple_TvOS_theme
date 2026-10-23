@@ -27,4 +27,6 @@ the rules. Keys from before this rule are on its wanted list; a screenshot for o
 | `wallpaper_rotation_minutes` | <img src="../themes/scenes/screenshot.jpg" width="320" alt="wallpaper_rotation_minutes on a TV"> |
 | `festival` | <img src="../themes/dussehra/screenshot.jpg" width="320" alt="festival on a TV"> |
 | `settings_key_panel` | <img src="quick-settings-panel.jpg" width="320" alt="settings_key_panel on a TV"> |
+| `show_bluetooth_pill` | <img src="switches/show_bluetooth_pill.jpg" width="320" alt="show_bluetooth_pill on a TV"> |
+| `tvos_style` | <img src="tvos/control-center.jpg" width="320" alt="tvos_style on a TV"> |
 | `home_idle_clock_minutes` | <img src="clock-screensaver.png" width="320" alt="home_idle_clock_minutes on a TV"> |

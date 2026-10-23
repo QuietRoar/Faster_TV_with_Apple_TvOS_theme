@@ -1,3 +1,135 @@
+# Faster TV with an Apple TV (tvOS) theme
+
+An Apple TV–style home screen for Android TV, with tvOS 26's Liquid Glass look, built on
+[CleanYourTV](https://github.com/Gathin23/cleanyourtv). It debloats the TV the same way (no root, nothing
+uninstalled, a one-line restore) and then replaces the stock home screen with a fast, minimal launcher that
+looks and feels like an Apple TV.
+
+<p align="center">
+  <img src="docs/tvos/home.jpg" alt="Home screen: the top row of apps in a glass band over a graphite gradient for the focused Apple TV app" width="800">
+</p>
+
+Built and tested on a **Xiaomi Mi TV (MiTV-AXSO0, Android TV 9, 1 GB RAM)**. It should run on any Android TV
+with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
+
+> Not affiliated with Apple. "Apple TV" and "tvOS" are Apple's trademarks; this is an independent look-alike
+> for Android TV. It contains no Apple artwork, sounds or code.
+
+## What you get
+
+| | |
+|---|---|
+| **Top shelf** | The focused top-row app fills the screen with its own brand-colour gradient (Netflix crimson, Prime blue, Hotstar violet…), and the glass takes on its colour. Other apps show rotating landscape photos. |
+| **Liquid Glass** | The top-row band, the Control Center, menus and every app icon are frosted, see-through glass with a bright rim and sheen. Android 9 has no live blur, so each background leaves a small blurred copy that the glass draws from: it looks like glass and costs about 37 KB. |
+| **Gloss slider** | In the Control Center: Left and Right set how glossy everything is, from flat frosted glass (0%) to bright rims (100%). Remembered across restarts. |
+| **tvOS focus** | The focused icon lifts with a shadow, tilts toward the way you moved, and catches a sweep of light. Its name appears underneath. |
+| **Frosted grid** | Below the top row, the whole background blurs and dims, as on tvOS. |
+| **Control Center** | Power off, Wi-Fi, Inputs (HDMI and Live TV), Bluetooth (paired and nearby devices, pair and connect), Sleep timer, Reorder apps, Home settings, Settings and Google Assistant, each its own glass control. |
+| **Reorder mode** | Icons jiggle while you move them, as on tvOS. |
+| **Opening apps** | The app zooms out of its icon. |
+| **Sounds** | Its own soft tick when focus moves and a tock on OK, instead of Android's click. They follow the TV's sound-effects setting. |
+| **Aerial screensaver** | Optional add-on: the landscapes slowly zoom and drift when the TV is idle. |
+| **Typeface** | Inter throughout, the closest open-licence match to Apple's SF Pro. |
+
+## Screenshots
+
+| | |
+|---|---|
+| ![Netflix focused: a deep crimson gradient fills the screen](docs/tvos/netflix.jpg) | ![JioHotstar focused: a blue-violet-magenta gradient](docs/tvos/hotstar.jpg) |
+| Netflix focused | JioHotstar focused |
+| ![Prime Video focused: a midnight-to-Prime-blue gradient](docs/tvos/prime.jpg) | ![The Control Center: Power off, Wi-Fi, Inputs, Bluetooth, Sleep timer, round buttons and the Gloss slider](docs/tvos/control-center.jpg) |
+| Prime Video focused | Control Center with the Gloss slider |
+| ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) | ![Reorder mode: the icons wobble at slightly different angles](docs/tvos/reorder.jpg) |
+| Frosted grid below the top row | Reorder mode |
+| ![The aerial screensaver showing mountain ridges at dusk](docs/tvos/screensaver.jpg) | |
+| Aerial screensaver | |
+
+## Install
+
+You need a computer on the same Wi-Fi as the TV, with JDK 17, the Android SDK (platform 34, build-tools
+34.0.0) and Python 3. On macOS: `brew install openjdk@17` and `brew install --cask android-commandlinetools`.
+
+1. **On the TV:** Settings → Device Preferences → About → press OK on **Build** seven times. Go back to
+   **Developer options** and turn on **USB debugging** (and Network/ADB debugging if your TV has it).
+2. **Connect** (the TV asks once to allow this computer):
+
+   ```sh
+   git clone https://github.com/QuietRoar/Faster_TV_with_Apple_TvOS_theme && cd Faster_TV_with_Apple_TvOS_theme
+   python3 -m venv tools/venv && tools/venv/bin/pip install -r tools/requirements.txt
+   TV_HOST=<tv ip> tools/venv/bin/python -I tools/tv.py --probe
+   ```
+
+3. **Optional debloat:** find your TV in [examples/](examples/README.md) and run
+   `TV_HOST=<tv ip> tools/disable.sh examples/<your-tv>/debloat.txt` (undo with `tools/restore.sh`).
+4. **Install the launcher** and make it Home:
+
+   ```sh
+   TV_HOST=<tv ip> launcher/build-and-install.sh
+   ```
+
+5. **Push the theme** (landscapes, gradients and the look's settings):
+
+   ```sh
+   TV_HOST=<tv ip> tools/theme.sh themes/liquid-glass
+   ```
+
+6. **Optional add-ons:** the Sleep timer (also powers the Control Center's Power off tile) and the aerial
+   screensaver:
+
+   ```sh
+   TV_HOST=<tv ip> addons/sleep-timer/build-and-install.sh
+   TV_HOST=<tv ip> addons/photo-screensaver/build-and-install.sh
+   TV_HOST=<tv ip> addons/photo-screensaver/sync.sh themes/liquid-glass/wallpapers
+   ```
+
+7. **Close ADB when you're done:** switch USB debugging off, revoke the authorisations, restart the TV, and
+   check with `tools/adb-closed.py <tv ip>`. Port 5555 is unencrypted, so don't leave it open.
+
+On macOS, if `adb` says "No route to host", that is macOS's Local Network privacy blocking it; the
+Python client in `tools/` works around it.
+
+## Make it yours
+
+- **Gloss:** the slider at the bottom of the Control Center.
+- **Top-shelf gradients:** colours per app are listed at the end of
+  [themes/liquid-glass/make_shelf.py](themes/liquid-glass/make_shelf.py). Change them, run
+  `tools/venv/bin/python themes/liquid-glass/make_shelf.py`, then push the theme again. Any picture works
+  too: put `shelf/<app package>.jpg` in the theme folder (for example `com.netflix.ninja.jpg`).
+- **Background photos:** replace the JPEGs in [themes/liquid-glass/wallpapers/](themes/liquid-glass/wallpapers)
+  (1920×1080, dark works best) and push the theme.
+- **Apps in the top row and their order:** Control Center → Reorder, or hold OK on an app and choose Move.
+- **Back to the plain CleanYourTV look:** set `tvos_style` to `false` in
+  [config.xml](launcher/app/src/main/res/values/config.xml), rebuild, and run `tools/theme.sh --reset`.
+
+## Using it on another TV
+
+[config.xml](launcher/app/src/main/res/values/config.xml) is set up for the Mi TV it was built on. On another
+set, check `live_tv_package` (the TV's Live TV app; `com.android.tv` here) and `dock_apps`, and read your
+model's notes in [examples/](examples/README.md). Everything else is generic.
+
+## Limits
+
+- No posters, trailers or "Continue watching" on the top shelf: Android TV apps don't hand those to other
+  launchers, so each app gets a gradient instead.
+- The glass is a blurred copy of the background, not live blur, which Android 9 doesn't have. It looks the
+  same, but doesn't shimmer as things move behind it.
+- App icons are each app's own banner, so they don't get Apple's layered icons.
+- The TV draws its home screen at 1280×720, so 4K pictures look no sharper than 1080p ones.
+
+## Credits
+
+- [CleanYourTV](https://github.com/Gathin23/cleanyourtv) by Gathin23 and contributors (MIT): the debloat
+  tools, the TV lists and the launcher this is built on. Its own guide follows below.
+- [Inter](https://rsms.me/inter/) by Rasmus Andersson (SIL Open Font License,
+  [licence](launcher/FONT-LICENSE-INTER-OFL.txt)).
+- Landscape photos from Wikimedia Commons under Creative Commons licences, credited in
+  [themes/liquid-glass/CREDITS.txt](themes/liquid-glass/CREDITS.txt).
+- The interface sounds and gradients are made for this project.
+
+---
+
+# The original CleanYourTV guide
+
 <p align="center">
   <a href="https://cleanyour.tv"><img src="https://raw.githubusercontent.com/Gathin23/cleanyourtv/main/docs/banner.png" alt="CleanYourTV. Your TV, minus the ads. Strip the bloatware from any Android TV or Google TV over Wi-Fi and replace the ad-filled home screen with a clean launcher that looks like an Apple TV. No root, no cable, nothing uninstalled, and a one-line restore." width="800"></a>
 </p>
