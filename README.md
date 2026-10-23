@@ -31,7 +31,11 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 | **Welcome banners** | One when the TV starts and one when it wakes, each with its own glossy 3D emoji, greeting, message and time on screen. |
 | **Volume display** | Six styles (Glass pill, tvOS bar, Side slider, Ring, Classic, Minimal line), in the theme's colour or one you choose, with a mute icon that stays while muted. Shown beside the TV's own volume bar; the Side slider sits over it and hides it. |
 | **Clear background apps** | Ends the background apps (never the launcher, the keyboard, Google services or your remote helpers) and shows the memory freed. |
-| **Clock** | Five styles, beside the profile picture or left of the symbols. |
+| **Clock** | Six styles (Light, Bold, Time and date, Glass pill, Large, and a widget card with a ring that fills through the day), beside the profile picture or left of the symbols. A night clock fills the empty top of Home with a big dim clock during your hours. |
+| **Night mode** | One tap halves the volume, dims the background, silences the click sounds and sets a 60-minute sleep timer; tap again to put it all back. |
+| **Lite mode** | One switch turns off the tilt, light sweep, launch zoom, fades and sounds, for when the TV feels busy. |
+| **Sounds** | Six sound packs (Glass, Pop, Wood, Chime, Crystal, Click) for moving, OK and Back, each previewed as you browse; Soft, Normal or Loud; and very soft welcome and goodbye chimes. Synthesised for this launcher (`launcher/make_sounds.py`). |
+| **Option lists** | Every setting with several choices opens a list of them all, the current one ticked. |
 | **Profile** | Your picture (`profile.jpg` in the theme folder) beside the clock; it opens an account card with your Google account, Themes and Welcome. |
 | **Reorder mode** | Icons jiggle while you move them, as on tvOS. |
 | **Opening apps** | The app zooms out of its icon. |
@@ -51,6 +55,10 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 | The Neon theme | Themes, with a preview of each pattern |
 | ![The volume display as a glass pill under the header, beside the TV's own bar](docs/tvos/volume.jpg) | ![Reorder mode: the icons wobble at slightly different angles](docs/tvos/reorder.jpg) |
 | Volume display (Glass pill) | Reorder mode |
+| ![The widget clock card in the header and the big dim night clock](docs/tvos/clocks.jpg) | ![Night mode on: the background dims and the volume halves](docs/tvos/night-mode.jpg) |
+| Widget clock card and night clock | Night mode |
+| ![A setting's choices listed, the current one ticked](docs/tvos/option-list.jpg) | ![Settings, Sounds: sound pack, volume, Back sound, welcome and goodbye](docs/tvos/sounds.jpg) |
+| Every option listed | Sounds |
 | ![The aerial screensaver showing mountain ridges at dusk](docs/tvos/screensaver.jpg) | |
 | Aerial screensaver | |
 
@@ -107,6 +115,10 @@ Python client in `tools/` works around it.
   Settings, Themes; or put them in `themes/liquid-glass/mythemes/` and push the theme.
 - **Control Center and Home symbols:** hold OK (or press Menu) on any control for Show on Home, Remove from
   Control Center and the full list (Settings, Control Center & Home), where you can also reorder them.
+- **Night mode and Lite mode:** rows in Settings; Night mode is also in Control Center and shows a symbol beside
+  the clock while on.
+- **Sounds:** Settings, Sounds. Move through the packs to hear each one.
+- **Clear background apps when the TV sleeps:** Settings, Clear background apps.
 - **Welcome:** Settings, Welcome: a banner for start and one for wake, each with its own emoji, words and time.
 - **Profile picture and account:** `profile.jpg` and `account.txt` (your Google account's address, one line) in
   the theme folder, then push it. Both are kept out of git.
