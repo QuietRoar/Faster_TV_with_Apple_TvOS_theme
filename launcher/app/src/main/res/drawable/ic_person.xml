@@ -1,0 +1,8 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- Profile button without a picture (tvos_style): a head and shoulders. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="22dp" android:height="22dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:fillColor="#FFFFFFFF"
+        android:pathData="M12,4a4,4 0,1 1,0 8a4,4 0,1 1,0 -8zM4,20.5c0.6,-3.9 4,-6.3 8,-6.3s7.4,2.4 8,6.3z" />
+</vector>

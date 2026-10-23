@@ -19,3 +19,7 @@ traces/
 *.aab
 launcher/hs_err_pid*.log
 launcher/replay_pid*.log
+
+# tvos_style: your own profile picture and Google account name stay on your computer and TV.
+themes/*/profile.jpg
+themes/*/account.txt

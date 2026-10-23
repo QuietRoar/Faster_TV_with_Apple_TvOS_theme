@@ -40,6 +40,12 @@
             android:launchMode="singleInstance"
             android:theme="@style/Warning" />
 
+        <!-- When the timer ends, read only, for the launcher's status pill beside its clock. -->
+        <provider
+            android:name=".StateProvider"
+            android:authorities="io.github.luyzfernando08.sleeptimer.state"
+            android:exported="true" />
+
         <!-- Sleep now, with no screen: the launcher's Control Center Power tile. Sleeping is what the remote's power
              key does anyway, so any app may ask. -->
         <activity

@@ -1,0 +1,10 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- "Hide from Home" for a status pill (tvos_style): an eye, struck through. -->
+<vector xmlns:android="http://schemas.android.com/apk/res/android"
+    android:width="24dp" android:height="24dp"
+    android:viewportWidth="24" android:viewportHeight="24">
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2"
+        android:pathData="M2.5,12c2.2,-4 5.6,-6 9.5,-6s7.3,2 9.5,6c-2.2,4 -5.6,6 -9.5,6s-7.3,-2 -9.5,-6zM12,9a3,3 0,1 1,0 6a3,3 0,1 1,0 -6z" />
+    <path android:strokeColor="#FFFFFFFF" android:strokeWidth="2" android:strokeLineCap="round"
+        android:pathData="M4,4l16,16" />
+</vector>

@@ -8,6 +8,10 @@ final class ThemeFiles {
     static final String WALLPAPERS = "wallpapers";
     /** tvos_style's top-shelf pictures, one per app, named by package: shelf/com.netflix.ninja.jpg. */
     static final String SHELF = "shelf";
+    /** tvos_style's profile picture, shown round beside the Control Center button. */
+    static final String PROFILE = "profile.jpg";
+    /** tvos_style: the Google account the profile button opens in Settings, one line (kept out of git). */
+    static final String ACCOUNT = "account.txt";
     /** The names tools/theme.sh accepts for a collection image, and the types WallpaperRotation reads. */
     private static final Pattern IMAGE = Pattern.compile("[A-Za-z0-9_.-]+\\.(jpg|jpeg|png|webp)",
             Pattern.CASE_INSENSITIVE);
@@ -20,14 +24,15 @@ final class ThemeFiles {
         if (segments.size() == 1) {
             String name = segments.get(0);
             return Config.FILE_NAME.equals(name) || "wallpaper.jpg".equals(name) || "theme_revision".equals(name)
-                    ? name : null;
+                    || PROFILE.equals(name) || ACCOUNT.equals(name) ? name : null;
         }
         if (segments.size() == 2 && WALLPAPERS.equals(segments.get(0))
                 && (collectionImage(segments.get(1)) || WallpaperCaptions.FILE_NAME.equals(segments.get(1)))) {
             return WALLPAPERS + "/" + segments.get(1);
         }
-        if (segments.size() == 2 && SHELF.equals(segments.get(0)) && collectionImage(segments.get(1))) {
-            return SHELF + "/" + segments.get(1);
+        if (segments.size() == 2 && (SHELF.equals(segments.get(0)) || Themes.MY_THEMES.equals(segments.get(0)))
+                && collectionImage(segments.get(1))) {
+            return segments.get(0) + "/" + segments.get(1);
         }
         return null;
     }
@@ -35,7 +40,8 @@ final class ThemeFiles {
     /** True for "wallpapers" or "shelf" alone: a delete of it clears that folder's images. */
     static boolean isCollection(List<String> segments) {
         return segments != null && segments.size() == 1
-                && (WALLPAPERS.equals(segments.get(0)) || SHELF.equals(segments.get(0)));
+                && (WALLPAPERS.equals(segments.get(0)) || SHELF.equals(segments.get(0))
+                || Themes.MY_THEMES.equals(segments.get(0)));
     }
 
     static boolean collectionImage(String name) {

@@ -10,6 +10,16 @@
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
+    <!-- tvos_style's Settings sheet: Wi-Fi on/off and connecting, the screensaver and sleep times and sound effects
+         (WRITE_SETTINGS, allowed by the install script), app sizes (usage access, likewise), and an app's Uninstall. -->
+    <uses-permission android:name="android.permission.CHANGE_WIFI_STATE" />
+    <!-- tvos_style: pictures in a "TV Themes" folder on a USB drive become themes (granted by the install script). -->
+    <uses-permission android:name="android.permission.READ_EXTERNAL_STORAGE" android:maxSdkVersion="32" />
+    <uses-permission android:name="android.permission.READ_MEDIA_IMAGES" />
+    <uses-permission android:name="android.permission.WRITE_SETTINGS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.PACKAGE_USAGE_STATS" tools:ignore="ProtectedPermissions" />
+    <uses-permission android:name="android.permission.REQUEST_DELETE_PACKAGES" />
+    <uses-permission android:name="android.permission.KILL_BACKGROUND_PROCESSES" />
     <!-- The Bluetooth pill lists, pairs and connects devices. Android 12+ asks for the nearby-devices pair instead;
          without it the pill opens Bluetooth settings. -->
     <uses-permission android:name="android.permission.BLUETOOTH" android:maxSdkVersion="30" />
@@ -203,6 +213,21 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/input_key_service" />
+        </service>
+
+        <!-- tvos_style's volume display: the remote's volume and mute keys, drawn in the chosen style over any app.
+             Switched on from Settings, Volume; see VolumeService. -->
+        <service
+            android:name=".VolumeService"
+            android:exported="false"
+            android:label="@string/vol_service_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/volume_service" />
         </service>
     </application>
 </manifest>

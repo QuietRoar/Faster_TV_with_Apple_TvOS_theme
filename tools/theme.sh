@@ -91,6 +91,29 @@ if [ -d "$THEME/wallpapers" ]; then
     esac
   done
 fi
+# tvos_style's profile picture beside the Control Center button; a theme without one leaves none behind.
+for FILE in profile.jpg account.txt; do   # account.txt: the account the profile button opens
+  if [ -f "$THEME/$FILE" ]; then
+    "$PY" -I b64push.py "$THEME/$FILE" "$TMP-$FILE"
+    tv "$(put $FILE)" >/dev/null
+  else
+    tv "$(del $FILE)" >/dev/null
+  fi
+done
+# tvos_style's own-picture themes (mythemes/): each picture there becomes a theme in Settings, Themes.
+tv "mkdir -p $DIR/mythemes 2>/dev/null; rm -f $DIR/mythemes/* 2>/dev/null; content delete --uri $URI/mythemes 2>/dev/null" >/dev/null
+if [ -d "$THEME/mythemes" ]; then
+  for IMAGE in "$THEME"/mythemes/*; do
+    [ -f "$IMAGE" ] || continue
+    case "$IMAGE" in
+      *.jpg|*.jpeg|*.png|*.webp|*.JPG|*.JPEG|*.PNG|*.WEBP)
+        NAME=$(basename "$IMAGE")
+        [[ "$NAME" =~ ^[A-Za-z0-9_.-]+$ ]] || { echo "unsupported picture filename: $NAME" >&2; exit 1; }
+        "$PY" -I b64push.py "$IMAGE" "$(stage "mythemes/$NAME")"
+        tv "$(put "mythemes/$NAME")" >/dev/null ;;
+    esac
+  done
+fi
 # tvos_style's top-shelf pictures, one per app (shelf/<package>.jpg); a theme without them leaves none behind.
 tv "mkdir -p $DIR/shelf 2>/dev/null; rm -f $DIR/shelf/* 2>/dev/null; content delete --uri $URI/shelf 2>/dev/null" >/dev/null
 if [ -d "$THEME/shelf" ]; then

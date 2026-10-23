@@ -1,5 +1,9 @@
 package com.gathin.tvhome;
 
+import android.widget.TextClock;
+import android.app.ActivityManager;
+import android.view.ViewOutlineProvider;
+import android.graphics.BitmapFactory;
 import android.annotation.SuppressLint;
 import android.animation.ArgbEvaluator;
 import android.animation.ValueAnimator;
@@ -290,11 +294,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         @Override
         public void onAvailable(@NonNull Network network) {
             handler.post(MainActivity.this::updateWifiLabel);
+            handler.post(MainActivity.this::updateStatusPills);
         }
 
         @Override
         public void onLost(@NonNull Network network) {
             handler.post(MainActivity.this::updateWifiLabel);
+            handler.post(MainActivity.this::updateStatusPills);
         }
     };
     /** Shows the Inputs pill once the TV registers an input: at boot HDMI inputs can appear after Home is shown. */
@@ -314,11 +320,13 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         @Override
         public void onAvailable(@NonNull Network network) {
             handler.post(MainActivity.this::updateWifiLabel);
+            handler.post(MainActivity.this::updateStatusPills);
         }
 
         @Override
         public void onLost(@NonNull Network network) {
             handler.post(MainActivity.this::updateWifiLabel);
+            handler.post(MainActivity.this::updateStatusPills);
         }
     };
     private final IntentFilter packageFilter = new IntentFilter();
@@ -633,6 +641,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             else open(systemIntent(Settings.ACTION_SETTINGS));
         });
         btnBluetooth = findViewById(R.id.btnBluetooth);
+        btnProfile = findViewById(R.id.btnProfile);
         btnBluetooth.setOnClickListener(v -> showBluetooth());
         btnBluetooth.setOnLongClickListener(v -> {
             open(systemIntent(Settings.ACTION_BLUETOOTH_SETTINGS));
@@ -691,8 +700,60 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             btnSettings.setOnClickListener(v -> showControlCenter());
             // Home's own tick and tock instead of Android's click; the tiles mute themselves as they are made.
             TvSounds.mute(root);
-            btnSettings.setBackground(new LiquidGlass.Background(btnSettings, -1, 0x1FFFFFFF, true));
+            settingsGlass = new LiquidGlass.Background(btnSettings, -1, 0x1FFFFFFF, true);
+            btnSettings.setBackground(settingsGlass);
             ((TextView) btnSettings).setCompoundDrawablesRelativeWithIntrinsicBounds(R.drawable.ic_control_center, 0, 0, 0);
+            setUpProfile();
+            statusPills = findViewById(R.id.statusPills);
+            statusPills.setVisibility(View.VISIBLE);
+            statusReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    updateStatusPills();
+                }
+            };
+            IntentFilter statusFilter = new IntentFilter(BluetoothDevice.ACTION_ACL_CONNECTED);
+            statusFilter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+            statusFilter.addAction(BluetoothAdapter.ACTION_STATE_CHANGED);
+            registerReceiver(statusReceiver, statusFilter);
+            // The welcome banner: when Home first comes up, and when the TV wakes or the screensaver ends.
+            welcomeReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    root.postDelayed(() -> showWelcome(Welcome.WAKE, false), 700);
+                }
+            };
+            IntentFilter wake = new IntentFilter(Intent.ACTION_SCREEN_ON);
+            wake.addAction(Intent.ACTION_DREAMING_STOPPED);
+            registerReceiver(welcomeReceiver, wake);
+            // The start banner only when Home comes up with the TV, not when it restarts later (an update, a theme).
+            if (android.os.SystemClock.elapsedRealtime() < 5 * 60_000) root.postDelayed(() -> showWelcome(Welcome.START, false), 900);
+            applyClock();
+            // After a reinstall Android leaves the volume display on its list but unbound, and binds it again only
+            // when the list changes: take it off and put it back.
+            if (VolumeView.Look.read(this).enabled && !volumeServiceBound()) rebindAccessibility();
+            // A drawn theme covers the wallpaper; TvOS keeps the slideshow.
+            themeView = new ImageView(this);
+            themeView.setScaleType(ImageView.ScaleType.FIT_XY);
+            themeView.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            themeView.setAlpha(0f);
+            int under = root.getChildCount() > 0 && root.getChildAt(0) instanceof ImageView ? 1 : 0;
+            root.addView(themeView, under, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            // A painted theme comes up with Home's first frame, from the copy saved when it was last painted, so the
+            // slideshow under it never shows first; it is painted again only when the theme or its choices change.
+            Themes.Theme startTheme = Themes.current(this);
+            if (!startTheme.photos()) {
+                Bitmap saved = savedTheme(startTheme);
+                if (saved != null) {
+                    themeView.setImageBitmap(saved);
+                    themeView.setAlpha(1f);
+                    LiquidGlass.setTheme(LiquidGlass.smallCopy(saved));
+                } else {
+                    applyTheme(startTheme.id);
+                }
+            }
+            // The clock and the buttons turn dark over a bright sky and back to white over a dark one.
+            LiquidGlass.onBackdropChanged(this::updateHeaderContrast);
+            root.post(this::updateHeaderContrast);
             if (LiquidGlass.enabled) {
                 // The frost goes over the wallpaper and the shelf, under the grid.
                 // tvOS has no ring around the focused icon: it lifts with a shadow (AppAdapter), so the slab stays off.
@@ -719,14 +780,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
         if (cfg.iconOnlyInputs) makeIconOnly((TextView) btnInputs);
         btnSettings.setOnLongClickListener(v -> {
-            showSettingsMenu();
+            // tvos_style: holding the Control Center button always reaches Settings, even with the gear removed.
+            if (tvosStyle) showSettingsSheet(SettingsSheet.HUB);
+            else showSettingsMenu();
             return true;
         });
 
         // Keep focus on the top bar at its ends and at the top: Android's focus finder would otherwise
         // jump to a tile far below when there is nothing in that direction.
         boolean rtlMenuBar = getResources().getBoolean(R.bool.rtl_menu_bar);
-        View.OnKeyListener pillKeys = (v, keyCode, event) -> {
+        pillKeys = (v, keyCode, event) -> {
             if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
             if (keyCode == KeyEvent.KEYCODE_DPAD_UP) return true;
             if (keyCode == KeyEvent.KEYCODE_DPAD_DOWN) {
@@ -735,8 +798,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 return true;
             }
             int firstButton = btnInputs.getVisibility() == View.VISIBLE ? R.id.btnInputs : firstTopButton().getId();
-            int leftButton = rtlMenuBar ? R.id.btnSettings : firstButton;
-            int rightButton = rtlMenuBar ? firstButton : R.id.btnSettings;
+            // tvos_style's status pills come first, left of the clock.
+            if (statusPills != null && statusPills.getChildCount() > 0) firstButton = statusPills.getChildAt(0).getId();
+            // tvos_style's profile picture is the bar's last button, after the gear.
+            int lastButton = btnProfile.getVisibility() == View.VISIBLE ? R.id.btnProfile : R.id.btnSettings;
+            int leftButton = rtlMenuBar ? lastButton : firstButton;
+            int rightButton = rtlMenuBar ? firstButton : lastButton;
             if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) return v.getId() == leftButton;
             return keyCode == KeyEvent.KEYCODE_DPAD_RIGHT && v.getId() == rightButton;
         };
@@ -746,8 +813,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         btnSettings.setOnKeyListener(pillKeys);
         btnReorder.setOnKeyListener(pillKeys);
         btnLibraryTop.setOnKeyListener(pillKeys);
+        btnProfile.setOnKeyListener(pillKeys);
         if (advancedEffects) {
-            for (View button : new View[]{btnInputs, btnWifi, btnBluetooth, btnReorder, btnLibraryTop, btnSettings}) {
+            for (View button : new View[]{btnInputs, btnWifi, btnBluetooth, btnReorder, btnLibraryTop, btnSettings, btnProfile}) {
                 button.setOnFocusChangeListener((view, focused) -> view.animate()
                         .scaleX(focused ? 1.04f : 1f).scaleY(focused ? 1.04f : 1f)
                         .setDuration(reducedMotion ? Motion.REDUCED_MS : 160).start());
@@ -881,6 +949,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onResume() {
         super.onResume();
+        if (statusPills != null) {
+            handler.removeCallbacks(statusTick);
+            handler.post(statusTick);
+        }
         // A festival that started or ended while Home was in the background: rebuild with or without it.
         if (festive != festival.active(LocalDate.now())) {
             recreate();
@@ -1092,6 +1164,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onPause() {
         super.onPause();
+        if (settingsSheet != null) settingsSheet.dismiss();   // an app or the screensaver took over
+        handler.removeCallbacks(statusTick);
         root.removeCallbacks(showIdleClock);
         endReorder();   // Home or another app while reordering keeps the order so far
         wallpaperPlayer.stop();
@@ -1156,6 +1230,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     protected void onDestroy() {
         super.onDestroy();
         unregisterReceiver(packageReceiver);
+        if (statusReceiver != null) unregisterReceiver(statusReceiver);
+        if (welcomeReceiver != null) unregisterReceiver(welcomeReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
@@ -1612,6 +1688,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (frost != null) {
             float target = dockRow && position < COLUMNS ? 0f : 1f;
             if (frost.getAlpha() != target) frost.animate().alpha(target).setDuration(reducedMotion ? Motion.REDUCED_MS : 380).start();
+            if (frostOn != (target > 0f)) {
+                frostOn = target > 0f;
+                updateHeaderContrast();
+            }
         }
         if (shelfArt != null && dockRow && position < COLUMNS) shelfArt.focus(adapter.packageAt(position));
         if (dockRow && position < COLUMNS) {
@@ -2536,6 +2616,30 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private View frost;
     /** tvos_style: the focused top-row app's picture; null without tvos_style or shelf pictures. */
     private ShelfArt shelfArt;
+    /** tvos_style: the frost is showing (focus is below the top row), which darkens what is behind the header. */
+    private boolean frostOn;
+    /** tvos_style: the profile picture beside the Control Center button; gone otherwise. */
+    private ImageView btnProfile;
+    /** tvos_style: the glass of the Control Center button and of the profile button without a picture. */
+    private LiquidGlass.Background settingsGlass, profileGlass;
+    /** tvos_style: the header is drawn dark for a bright background; null until first measured. */
+    private Boolean headerLight;
+    /** The top bar's keys: Down back to the dock, no falling off either end. */
+    private View.OnKeyListener pillKeys;
+    /** tvos_style: pills beside the clock for what is on; null otherwise. */
+    private LinearLayout statusPills;
+    /** What the pills showed last time, so an unchanged state does not rebuild them. */
+    private String statusShown = "";
+    private final List<LiquidGlass.Background> statusGlass = new ArrayList<>();
+    private BroadcastReceiver statusReceiver;
+    /** Keeps the sleep timer's minutes current while Home is up. */
+    private final Runnable statusTick = new Runnable() {
+        @Override public void run() {
+            updateStatusPills();
+            handler.postDelayed(this, 30_000);
+        }
+    };
+    private static final Uri SLEEP_STATE = Uri.parse("content://io.github.luyzfernando08.sleeptimer.state");
     private boolean launcherSettingsButton;
     /** icon_only_buttons without wifi_label_width: the Wi-Fi pill shows no network name. */
     private boolean wifiIconOnly;
@@ -2617,7 +2721,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
 
     /** Every settings entry shares the standard intent and the vendor fallback (SystemSettings). */
-    private Intent systemIntent(String standardAction) {
+    Intent systemIntent(String standardAction) {
         return SystemSettings.intent(this, standardAction);
     }
 
@@ -2690,7 +2794,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         }
     }
 
-    private void open(Intent i) {
+    void open(Intent i) {
         i.addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
         try {
             startActivity(i);
@@ -2753,7 +2857,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /** Dropdown menu under the Inputs pill: HDMI ports (with connection state), AV and Live TV. */
-    private void showInputs() {
+    void showInputs() {
         // A configured source panel and no Live TV row to offer next to it: the panel is the whole menu.
         // The BYINTEK U4 needs this, as its TvInputManager lists three HDMI ports and an AV input it doesn't have.
         List<CoocaaSources.Source> coocaa = coocaaSources ? CoocaaSources.list(this) : Collections.emptyList();
@@ -2925,7 +3029,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         rows.getChildAt(0).requestFocus();
     }
 
-    private PopupWindow glassPopup(View panel, int width) {
+    PopupWindow glassPopup(View panel, int width) {
         final PopupWindow popup = new PopupWindow(LiquidGlass.enabled ? TvSounds.wrap(panel) : panel, width,
                 ViewGroup.LayoutParams.WRAP_CONTENT, true);
         popup.setBackgroundDrawable(new ColorDrawable(Color.TRANSPARENT));   // needed for Back to dismiss
@@ -3014,7 +3118,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /**
      * Control Center, laid out as tvOS 26 draws it: no panel, each control its own glass shape hanging under the
-     * clock and the toggles button. Power and two pills, a row of pills, a row of round buttons, and the Gloss slider.
+     * clock and the toggles button. Which controls, and their order, are the owner's (Controls): Power as a square
+     * beside the first two pills, the other pills two to a row, then the round buttons and the Gloss slider.
+     * Holding OK or Menu on any of them opens its menu: on Home or not, out of Control Center, or the full list.
      */
     private void showControlCenter() {
         View panel = getLayoutInflater().inflate(R.layout.popup_control_center, root, false);
@@ -3022,75 +3128,95 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         final PopupWindow popup = glassPopup(panel, width);
         panel.setBackground(null);   // no panel: the controls are the glass
 
-        // Power: the sleep-timer add-on's sleep-now screen, the only way an app can put the TV to sleep. Without
-        // the add-on the tile opens the TV's settings, where the power options are.
+        List<String> order = Controls.controlCenter(this);
+        List<String> pills = new ArrayList<>();
+        List<String> rounds = new ArrayList<>();
+        for (String key : order) {
+            if (!controlAvailable(key)) continue;
+            Controls.Shape shape = Controls.shape(key);
+            if (shape == Controls.Shape.PILL) pills.add(key);
+            else if (shape == Controls.Shape.ROUND) rounds.add(key);
+        }
+        View first = null;
+
+        // Power: the sleep-timer add-on's sleep-now screen, the only way an app can put the TV to sleep.
         View power = panel.findViewById(R.id.ccPower);
-        glassControl(power, 30 * density);
-        Intent sleepNow = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".SleepNowActivity");
-        boolean canSleep = sleepNow.resolveActivity(getPackageManager()) != null;
-        power.setOnClickListener(v -> {
-            popup.dismiss();
-            open(canSleep ? sleepNow : systemIntent(Settings.ACTION_SETTINGS));
-        });
-
-        CharSequence network = wifiIconOnly ? btnWifi.getContentDescription() : btnWifi.getText();
-        if (TextUtils.isEmpty(network)) network = getString(R.string.cc_wifi_off);
         LinearLayout topPills = panel.findViewById(R.id.topPills);
-        View wifi = addControlPill(topPills, popup, R.drawable.ic_wifi, getString(R.string.wifi), network,
-                this::openNetworkPill);
-        // Inputs and Bluetooth open their own lists under the toggles button once this has closed.
-        addControlPill(topPills, popup, R.drawable.ic_input, getString(R.string.inputs), null,
-                () -> root.post(this::showInputs));
+        if (order.contains(Controls.POWER)) {
+            glassControl(power, 30 * density);
+            power.setOnClickListener(v -> {
+                popup.dismiss();
+                perform(Controls.POWER);
+            });
+            controlMenuKeys(power, Controls.POWER, popup);
+            if (order.indexOf(Controls.POWER) == 0) first = power;
+            for (int i = 0; i < 2 && !pills.isEmpty(); i++) addPill(topPills, popup, pills.remove(0));
+            if (topPills.getChildCount() == 0) topPills.setVisibility(View.GONE);
+        } else {
+            panel.findViewById(R.id.topBlock).setVisibility(View.GONE);
+        }
 
-        LinearLayout midPills = panel.findViewById(R.id.midPills);
-        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
-        if (adapter != null) {
-            addControlPill(midPills, popup, R.drawable.ic_bluetooth, getString(R.string.bluetooth),
-                    bluetoothSummary(adapter), () -> root.post(this::showBluetooth));
+        LinearLayout pillRows = panel.findViewById(R.id.midPills);
+        pillRows.setOrientation(LinearLayout.VERTICAL);
+        while (!pills.isEmpty()) {
+            LinearLayout row = new LinearLayout(this);
+            row.setOrientation(LinearLayout.HORIZONTAL);
+            LinearLayout.LayoutParams rlp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            if (pillRows.getChildCount() > 0) rlp.topMargin = (int) (8 * density);
+            pillRows.addView(row, rlp);
+            for (int i = 0; i < 2 && !pills.isEmpty(); i++) addPill(row, popup, pills.remove(0));
         }
-        Intent sleep = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".TimerActivity");
-        if (sleep.resolveActivity(getPackageManager()) != null) {
-            addControlPill(midPills, popup, R.drawable.ic_sleep, getString(R.string.cc_sleep_timer), null,
-                    () -> open(sleep));
-        }
-        if (midPills.getChildCount() == 0) midPills.setVisibility(View.GONE);
+        if (pillRows.getChildCount() == 0) pillRows.setVisibility(View.GONE);
 
         LinearLayout round = panel.findViewById(R.id.roundRow);
-        addControlRound(round, popup, R.drawable.ic_swap_vert, R.string.cc_reorder, this::toggleReorder);
-        addControlRound(round, popup, R.drawable.ic_tune, R.string.cc_home_settings,
-                () -> startActivityForResult(new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST));
-        addControlRound(round, popup, R.drawable.ic_settings, R.string.settings,
-                () -> open(systemIntent(Settings.ACTION_SETTINGS)));
-        Intent search = new Intent(Intent.ACTION_ASSIST).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
-        if (search.resolveActivity(getPackageManager()) != null) {
-            addControlRound(round, popup, R.drawable.ic_mic, R.string.cc_assistant, () -> open(search));
+        for (String key : rounds) {
+            View button = addControlRound(round, popup, Controls.icon(key), Controls.label(key), () -> perform(key));
+            controlMenuKeys(button, key, popup);
         }
+        if (round.getChildCount() == 0) round.setVisibility(View.GONE);
 
         // Gloss: Left and Right move the slider in steps of 10, and every glass surface and icon follows at once.
         View gloss = panel.findViewById(R.id.ccGloss);
-        glassControl(gloss, -1);
-        GlossSlider slider = panel.findViewById(R.id.glossSlider);
-        TextView glossValue = panel.findViewById(R.id.glossValue);
-        int[] percent = {Math.round(LiquidGlass.gloss * 100)};
-        slider.setValue(percent[0]);
-        glossValue.setText(getString(R.string.percent, percent[0]));
-        gloss.setOnKeyListener((v, keyCode, event) -> {
-            if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
-            if (event.getAction() == KeyEvent.ACTION_DOWN) {
-                percent[0] = Math.max(0, Math.min(100, percent[0] + (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 10 : -10)));
-                slider.setValue(percent[0]);
-                glossValue.setText(getString(R.string.percent, percent[0]));
-                applyGloss(percent[0]);
-            }
-            return true;
-        });
+        if (order.contains(Controls.GLOSS)) {
+            glassControl(gloss, -1);
+            GlossSlider slider = panel.findViewById(R.id.glossSlider);
+            TextView glossValue = panel.findViewById(R.id.glossValue);
+            int[] percent = {Math.round(LiquidGlass.gloss * 100)};
+            slider.setValue(percent[0]);
+            glossValue.setText(getString(R.string.percent, percent[0]));
+            gloss.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode == KeyEvent.KEYCODE_MENU) {
+                    if (event.getAction() == KeyEvent.ACTION_UP) showControlMenu(Controls.GLOSS, popup);
+                    return true;
+                }
+                if (keyCode != KeyEvent.KEYCODE_DPAD_LEFT && keyCode != KeyEvent.KEYCODE_DPAD_RIGHT) return false;
+                if (event.getAction() == KeyEvent.ACTION_DOWN) {
+                    percent[0] = Math.max(0, Math.min(100, percent[0] + (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT ? 10 : -10)));
+                    slider.setValue(percent[0]);
+                    glossValue.setText(getString(R.string.percent, percent[0]));
+                    applyGloss(percent[0]);
+                }
+                return true;
+            });
+            gloss.setOnLongClickListener(v -> {
+                showControlMenu(Controls.GLOSS, popup);
+                return true;
+            });
+        } else {
+            gloss.setVisibility(View.GONE);
+        }
+        if (first == null) first = firstFocusable(panel);
+        if (first == null) {
+            // Everything was taken out: an empty Control Center would be a dead end, so open the list instead.
+            popup.dismiss();
+            showSettingsSheet(SettingsSheet.CONTROLS);
+            return;
+        }
 
         // Hang the controls under the toggles button, right-aligned with it, and let them drop in from there.
-        View toggles = findViewById(R.id.btnSettings);
-        int[] at = new int[2];
-        toggles.getLocationInWindow(at);
-        int right = root.getWidth() - (at[0] + toggles.getWidth()) - (int) (10 * density);
-        int top = at[1] + toggles.getHeight() + (int) (2 * density);
+        int right = headerRightInset() - (int) (10 * density);
+        int top = headerBottom() + (int) (2 * density);
         panel.setAlpha(0f);
         panel.setPivotX(width);
         panel.setPivotY(0f);
@@ -3099,7 +3225,148 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         popup.showAtLocation(root, Gravity.TOP | Gravity.END, Math.max(0, right), top);
         panel.animate().alpha(1f).scaleX(1f).scaleY(1f).setDuration(reducedMotion ? Motion.REDUCED_MS : 240)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
-        wifi.requestFocus();
+        first.requestFocus();
+    }
+
+    private static View firstFocusable(View view) {
+        if (view.getVisibility() != View.VISIBLE) return null;
+        if (view.isFocusable()) return view;
+        if (view instanceof ViewGroup) {
+            ViewGroup group = (ViewGroup) view;
+            for (int i = 0; i < group.getChildCount(); i++) {
+                View found = firstFocusable(group.getChildAt(i));
+                if (found != null) return found;
+            }
+        }
+        return null;
+    }
+
+    /** A control this TV can offer: Bluetooth needs an adapter, the sleep timer its add-on, Assistant an assistant. */
+    private boolean controlAvailable(String key) {
+        switch (key) {
+            case Controls.BLUETOOTH: return BluetoothAdapter.getDefaultAdapter() != null;
+            case Controls.SLEEP: return sleepTimerIntent().resolveActivity(getPackageManager()) != null;
+            case Controls.ASSISTANT: return assistantIntent().resolveActivity(getPackageManager()) != null;
+            default: return true;
+        }
+    }
+
+    private Intent sleepTimerIntent() {
+        return new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".TimerActivity");
+    }
+
+    private Intent assistantIntent() {
+        return new Intent(Intent.ACTION_ASSIST).addFlags(Intent.FLAG_ACTIVITY_NEW_TASK);
+    }
+
+    /** A Control Center pill for a control, with its state: Wi-Fi's network, Bluetooth's devices, the timer. */
+    private void addPill(LinearLayout parent, PopupWindow popup, String key) {
+        CharSequence status = null;
+        boolean active = false;
+        if (Controls.WIFI.equals(key)) {
+            active = networkConnected();
+            CharSequence network = wifiIconOnly ? btnWifi.getContentDescription() : btnWifi.getText();
+            status = TextUtils.isEmpty(network) || network.toString().equals(getString(R.string.wifi))
+                    ? getString(active ? R.string.cc_connected : R.string.cc_wifi_off) : network;
+        } else if (Controls.BLUETOOTH.equals(key)) {
+            BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+            try {
+                active = adapter.isEnabled();
+            } catch (SecurityException e) {
+                active = false;
+            }
+            status = bluetoothSummary(adapter);
+        } else if (Controls.SLEEP.equals(key)) {
+            long minutes = sleepMinutesLeft();
+            active = minutes > 0;
+            if (active) status = getString(R.string.status_sleep, (int) minutes);
+        } else if (Controls.BOOST.equals(key)) {
+            ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
+            ((ActivityManager) getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(memory);
+            status = getString(R.string.boost_free_short, android.text.format.Formatter.formatShortFileSize(this, memory.availMem));
+        }
+        View pill = addControlPill(parent, popup, Controls.icon(key), getString(Controls.label(key)), status, active,
+                () -> perform(key));
+        controlMenuKeys(pill, key, popup);
+    }
+
+    /** Holding OK or pressing Menu on a control opens its menu. */
+    private void controlMenuKeys(View control, String key, PopupWindow controlCenter) {
+        control.setOnLongClickListener(v -> {
+            showControlMenu(key, controlCenter);
+            return true;
+        });
+        control.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_MENU) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) showControlMenu(key, controlCenter);
+            return true;
+        });
+    }
+
+    /**
+     * What a control does, from Control Center or from its pill on Home. Wi-Fi and the other settings pages open
+     * as a compact card; the gear opens the full Settings.
+     */
+    void perform(String key) {
+        switch (key) {
+            case Controls.POWER: {
+                Intent sleepNow = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".SleepNowActivity");
+                open(sleepNow.resolveActivity(getPackageManager()) != null ? sleepNow : systemIntent(Settings.ACTION_SETTINGS));
+                break;
+            }
+            case Controls.WIFI: showSettingsSheet(SettingsSheet.WIFI, true); break;
+            case Controls.SOUND: showSettingsSheet(SettingsSheet.SOUND, true); break;
+            case Controls.APPS: showSettingsSheet(SettingsSheet.APPS, true); break;
+            case Controls.ABOUT: showSettingsSheet(SettingsSheet.ABOUT, true); break;
+            case Controls.SETTINGS: showSettingsSheet(SettingsSheet.HUB); break;
+            case Controls.INPUTS: root.post(this::showInputs); break;
+            case Controls.BLUETOOTH: root.post(this::showBluetooth); break;
+            case Controls.SLEEP: open(sleepTimerIntent()); break;
+            case Controls.ASSISTANT: open(assistantIntent()); break;
+            case Controls.HOME_SETTINGS: openLauncherSettings(); break;
+            case Controls.REORDER: toggleReorder(); break;
+            case Controls.BOOST:
+                if (settingsSheet == null) settingsSheet = new SettingsSheet(this);
+                settingsSheet.boostRequested = true;
+                showSettingsSheet(SettingsSheet.MEMORY, true);
+                break;
+            case Controls.THEMES: showSettingsSheet(SettingsSheet.THEMES, true); break;
+            case Controls.WELCOME: showSettingsSheet(SettingsSheet.WELCOME, true); break;
+            default: break;
+        }
+    }
+
+    /**
+     * A control's menu, from Control Center or from its pill on Home: show it on Home or take it off, take it out
+     * of Control Center or put it in, or open the full list to arrange everything.
+     */
+    private void showControlMenu(String key, PopupWindow controlCenter) {
+        if (controlCenter != null) controlCenter.dismiss();
+        View panel = getLayoutInflater().inflate(R.layout.popup_inputs, root, false);
+        LinearLayout rows = panel.findViewById(R.id.rows);
+        PopupWindow popup = glassPopup(panel, (int) (260 * density));
+        String name = getString(Controls.label(key));
+        if (Controls.canBeOnHome(key)) {
+            boolean onHome = Controls.home(this).contains(key);
+            addInputRow(rows, popup, onHome ? R.drawable.ic_hide : R.drawable.ic_home_settings_pill,
+                    getString(onHome ? R.string.ctl_remove_home : R.string.ctl_show_home), -1, () -> {
+                        Controls.setOnHome(this, key, !onHome);
+                        refreshHomePills();
+                        Toast.makeText(this, getString(onHome ? R.string.ctl_removed_home : R.string.ctl_added_home, name),
+                                Toast.LENGTH_SHORT).show();
+                    });
+        }
+        boolean inCc = Controls.controlCenter(this).contains(key);
+        addInputRow(rows, popup, R.drawable.ic_control_center,
+                getString(inCc ? R.string.ctl_remove_cc : R.string.ctl_add_cc), -1, () -> {
+                    Controls.setInControlCenter(this, key, !inCc);
+                    Toast.makeText(this, getString(inCc ? R.string.ctl_removed_cc : R.string.ctl_added_cc, name),
+                            Toast.LENGTH_SHORT).show();
+                });
+        addInputRow(rows, popup, R.drawable.ic_tune, getString(R.string.ctl_edit), -1,
+                () -> showSettingsSheet(SettingsSheet.CONTROLS));
+        dropIn(popup, panel, findViewById(R.id.btnSettings), Gravity.END);
+        rows.getChildAt(0).requestFocus();
     }
 
     /** Gives a Control Center control its glass: see-through, tinted just enough for white text, white on focus. */
@@ -3114,9 +3381,21 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Adds a pill to a row (side by side) or a column (stacked), with 10dp between pills. */
     private View addControlPill(LinearLayout parent, PopupWindow popup, int iconRes, String title, CharSequence status,
-                                Runnable action) {
+                                boolean active, Runnable action) {
         View pill = getLayoutInflater().inflate(R.layout.item_cc_pill, parent, false);
-        ((ImageView) pill.findViewById(R.id.icon)).setImageResource(iconRes);
+        ImageView icon = pill.findViewById(R.id.icon);
+        icon.setImageResource(iconRes);
+        if (active) {
+            // On, as tvOS shows a lit toggle: a white icon in a blue circle, focused or not.
+            ViewGroup.LayoutParams lp = icon.getLayoutParams();
+            lp.width = lp.height = (int) (30 * density);
+            icon.setLayoutParams(lp);
+            int pad = (int) (6 * density);
+            icon.setPadding(pad, pad, pad, pad);
+            icon.setBackgroundResource(R.drawable.cc_active);
+            icon.setBackgroundTintList(ColorStateList.valueOf(Themes.accent(this)));   // the theme's accent
+            icon.setImageTintList(ColorStateList.valueOf(Color.WHITE));
+        }
         ((TextView) pill.findViewById(R.id.title)).setText(title);
         TextView statusView = pill.findViewById(R.id.status);
         // A status that only repeats the name (the Wi-Fi pill says "Wi-Fi" when the network name is hidden) is left out.
@@ -3142,7 +3421,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Adds a round glass button, spread evenly across its row. */
     @SuppressLint("ResourceType")   // pill_text is a colour selector kept with the drawables, as the layouts use it
-    private void addControlRound(LinearLayout row, PopupWindow popup, int iconRes, int label, Runnable action) {
+    private View addControlRound(LinearLayout row, PopupWindow popup, int iconRes, int label, Runnable action) {
         ImageView button = new ImageView(this);
         button.setImageResource(iconRes);
         button.setImageTintList(getColorStateList(R.drawable.pill_text));
@@ -3158,6 +3437,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         int size = (int) (46 * density);
         if (row.getChildCount() > 0) row.addView(new View(this), new LinearLayout.LayoutParams(0, 1, 1f));
         row.addView(button, new LinearLayout.LayoutParams(size, size));
+        return button;
     }
 
     /** The Gloss slider's value, applied to the glass and every icon, and kept for the next start. */
@@ -3170,8 +3450,587 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).edit().putInt("gloss", percent).apply();
     }
 
+    /** tvos_style's own Settings sheet; made on first use. */
+    private SettingsSheet settingsSheet;
+
+    /** Opens the launcher's Settings sheet on a page (SettingsSheet.HUB, WIFI and so on). */
+    void showSettingsSheet(String page) {
+        showSettingsSheet(page, false);
+    }
+
+    /** compact: one page as a card under the header, which Back closes; otherwise the full sheet. */
+    void showSettingsSheet(String page, boolean compact) {
+        if (settingsSheet == null) settingsSheet = new SettingsSheet(this);
+        settingsSheet.show(page, compact);
+    }
+
+    /** The header's bottom edge in Home's coordinates: Control Center and the compact cards hang from it. */
+    int headerBottom() {
+        View toggles = findViewById(R.id.btnSettings);
+        int[] at = new int[2];
+        toggles.getLocationInWindow(at);
+        return at[1] + toggles.getHeight();
+    }
+
+    /** From the right edge of the screen to the header's last button. */
+    int headerRightInset() {
+        View last = btnProfile != null && btnProfile.getVisibility() == View.VISIBLE ? btnProfile : findViewById(R.id.btnSettings);
+        int[] at = new int[2];
+        last.getLocationInWindow(at);
+        return root.getWidth() - (at[0] + last.getWidth());
+    }
+
+    ViewGroup homeRoot() {
+        return root;
+    }
+
+    /** A popup that closed itself is no longer the open one. */
+    void forgetPopup(PopupWindow popup) {
+        if (openPopup == popup) openPopup = null;
+    }
+
+    void openLauncherSettings() {
+        startActivityForResult(new Intent(this, LauncherSettingsActivity.class), LAUNCHER_SETTINGS_REQUEST);
+    }
+
+    /** Connected to a network (Wi-Fi or Ethernet), for the Control Center's Wi-Fi pill. */
+    boolean networkConnected() {
+        android.net.ConnectivityManager cm = (android.net.ConnectivityManager) getSystemService(CONNECTIVITY_SERVICE);
+        android.net.NetworkInfo info = cm == null ? null : cm.getActiveNetworkInfo();
+        return info != null && info.isConnected();
+    }
+
+    /**
+     * tvos_style: the profile picture beside the Control Center button. The theme's profile.jpg, cut round; without
+     * one, a person symbol on glass. OK opens the TV's Settings, where Accounts & Sign-In is.
+     */
+    private void setUpProfile() {
+        btnProfile.setVisibility(View.VISIBLE);
+        btnProfile.setOutlineProvider(new ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setOval(0, 0, view.getWidth(), view.getHeight());
+            }
+        });
+        btnProfile.setClipToOutline(true);
+        Bitmap photo = profilePhoto();
+        profileBitmap = photo;
+        if (photo != null) {
+            btnProfile.setImageBitmap(photo);
+            btnProfile.setForeground(getDrawable(R.drawable.avatar_ring));
+        } else {
+            btnProfile.setImageResource(R.drawable.ic_person);
+            btnProfile.setScaleType(ImageView.ScaleType.CENTER);
+            profileGlass = new LiquidGlass.Background(btnProfile, -1, 0x1FFFFFFF, true);
+            btnProfile.setBackground(profileGlass);
+        }
+        btnProfile.setOnClickListener(v -> showSettingsSheet(SettingsSheet.ACCOUNT, true));
+    }
+
+    /**
+     * The TV's page for the account named in the theme's account.txt (Sync now, Remove account and the synced
+     * apps). Android does not let other apps read the account list, hence the file. Without it, Settings.
+     */
+    Intent accountIntent() {
+        String account = accountName();
+        if (!TextUtils.isEmpty(account)) {
+            Intent page = new Intent().setClassName("com.android.tv.settings",
+                    "com.android.tv.settings.accounts.AccountSyncActivity").putExtra("account_name", account);
+            if (page.resolveActivity(getPackageManager()) != null) return page;
+        }
+        return systemIntent(Settings.ACTION_SETTINGS);
+    }
+
+    /** The account in the theme's account.txt, or null. */
+    String accountName() {
+        File dir = Config.dir(this);
+        File file = dir == null ? null : new File(dir, ThemeFiles.ACCOUNT);
+        if (file == null || !file.isFile()) return null;
+        try {
+            String account = new String(java.nio.file.Files.readAllBytes(file.toPath()), java.nio.charset.StandardCharsets.UTF_8).trim();
+            return account.isEmpty() ? null : account;
+        } catch (java.io.IOException | RuntimeException e) {
+            return null;
+        }
+    }
+
+    /** The profile picture as decoded for the button, for the Account card; null without one. */
+    Bitmap profileBitmap() {
+        return profileBitmap;
+    }
+
+    private Bitmap profileBitmap;
+
+    /** The theme's profile.jpg, decoded small (the button is 42dp), or null. */
+    private Bitmap profilePhoto() {
+        File dir = Config.dir(this);
+        File file = dir == null ? null : new File(dir, ThemeFiles.PROFILE);
+        if (file == null || !file.isFile()) return null;
+        BitmapFactory.Options options = new BitmapFactory.Options();
+        options.inJustDecodeBounds = true;
+        BitmapFactory.decodeFile(file.getPath(), options);
+        int side = Math.min(options.outWidth, options.outHeight), want = (int) (84 * density);
+        options.inSampleSize = 1;
+        while (side / (options.inSampleSize * 2) >= want) options.inSampleSize *= 2;
+        options.inJustDecodeBounds = false;
+        return BitmapFactory.decodeFile(file.getPath(), options);
+    }
+
+    /**
+     * Keeps the header readable: measures the background behind the clock and the buttons (top right) and draws
+     * them dark on light glass over a bright sky, white on clear glass otherwise. The frost below the top row
+     * darkens the background, so it counts too. A little hysteresis stops a picture near the line from flickering.
+     */
+    private void updateHeaderContrast() {
+        float lum = LiquidGlass.brightness(0.70f, 0f, 1f, 0.22f);
+        if (lum < 0) return;
+        if (frostOn) lum *= 0.55f;
+        boolean light = headerLight != null && headerLight ? lum > 0.55f : lum > 0.63f;
+        if (headerLight != null && light == headerLight) return;
+        headerLight = light;
+        TextView clock = findViewById(R.id.clockSmall);
+        clock.setTextColor(light ? 0xE6141416 : 0xD9FFFFFF);
+        if (light) clock.setShadowLayer(8 * density, 0, 0, 0x73FFFFFF);
+        else clock.setShadowLayer(10 * density, 0, density, 0x8C000000);
+        ColorStateList ink = new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
+                new int[]{0xFF111111, light ? 0xFF1C1C1E : 0xFFFFFFFF});
+        ((TextView) findViewById(R.id.btnSettings)).setCompoundDrawableTintList(ink);
+        int glassTint = light ? 0x73FFFFFF : 0x1FFFFFFF;
+        if (settingsGlass != null) settingsGlass.setGlassTint(glassTint);
+        if (profileGlass != null) {
+            profileGlass.setGlassTint(glassTint);
+            btnProfile.setImageTintList(ink);
+        }
+        styleStatusPills();
+    }
+
+    /** The status pills take the header's ink and glass, dark on light glass over a bright sky. */
+    private void styleStatusPills() {
+        if (statusPills == null) return;
+        boolean light = headerLight != null && headerLight;
+        ColorStateList ink = new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
+                new int[]{0xFF111111, light ? 0xFF1C1C1E : 0xFFFFFFFF});
+        ColorStateList onAccent = new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
+                new int[]{0xFF111111, 0xFFFFFFFF});
+        for (int i = 0; i < statusPills.getChildCount(); i++) {
+            TextView pill = (TextView) statusPills.getChildAt(i);
+            boolean active = pill.getTag(R.id.jiggle) != null;
+            pill.setTextColor(active ? onAccent : ink);
+            pill.setCompoundDrawableTintList(active ? onAccent : ink);
+        }
+        for (LiquidGlass.Background glassBg : statusGlass) glassBg.setGlassTint(light ? 0x73FFFFFF : 0x1FFFFFFF);
+    }
+
+    /**
+     * tvos_style: the owner's controls as round symbols beside the clock (Controls.home), in their order. Wi-Fi,
+     * Bluetooth and the sleep timer show only while on (connected, playing to a speaker, counting down); the
+     * others always. Each one's name is its talkback label; OK does what it does in Control Center, and holding OK
+     * or Menu opens its menu.
+     */
+    private void updateStatusPills() {
+        if (statusPills == null) return;
+        List<Object[]> want = new ArrayList<>();   // {key, icon, label}
+        for (String key : Controls.home(this)) {
+            if (!controlAvailable(key)) continue;
+            int icon = Controls.icon(key);
+            String label = getString(Controls.label(key));
+            if (Controls.WIFI.equals(key)) {
+                if (!networkConnected()) continue;
+                if (SettingsSheet.ethernet(this)) {
+                    icon = R.drawable.ic_ethernet;
+                    label = getString(R.string.ethernet);
+                }
+            } else if (Controls.BLUETOOTH.equals(key)) {
+                String device = connectedBluetoothDevice();
+                if (device == null) continue;
+                label = device;
+            } else if (Controls.SLEEP.equals(key)) {
+                long minutes = sleepMinutesLeft();
+                if (minutes <= 0) continue;
+                label = getString(R.string.status_sleep, (int) minutes);
+            }
+            want.add(new Object[]{key, icon, label});
+        }
+
+        StringBuilder signature = new StringBuilder();
+        for (Object[] w : want) signature.append(w[0]).append(':').append(w[1]).append(':').append(w[2]).append(';');
+        if (signature.toString().equals(statusShown)) return;
+        statusShown = signature.toString();
+        View focused = statusPills.findFocus();
+        Object focusedKey = focused == null ? null : focused.getTag();
+        statusPills.removeAllViews();
+        statusGlass.clear();
+        for (Object[] w : want) {
+            String key = (String) w[0];
+            TextView pill = new TextView(this, null, 0, R.style.TopButton);
+            pill.setId(View.generateViewId());
+            pill.setTag(key);
+            // Symbols only, round like the buttons beside them; the name is for TalkBack.
+            pill.setContentDescription((String) w[2]);
+            pill.setCompoundDrawablesRelativeWithIntrinsicBounds((int) w[1], 0, 0, 0);
+            int pad = Math.round(10 * density);
+            pill.setPaddingRelative(pad, 0, pad, 0);
+            pill.setCompoundDrawablePadding(0);
+            // What is on (connected, playing, counting down) is filled with the theme's accent; the rest is glass.
+            if (Controls.status(key)) {
+                pill.setBackground(activePill());
+                pill.setTag(R.id.jiggle, Boolean.TRUE);   // marks it active for styleStatusPills
+            } else {
+                LiquidGlass.Background glassBg = new LiquidGlass.Background(pill, -1, 0x1FFFFFFF, true);
+                statusGlass.add(glassBg);
+                pill.setBackground(glassBg);
+            }
+            pill.setNextFocusDownId(R.id.grid);
+            pill.setOnKeyListener((v, keyCode, event) -> {
+                if (keyCode == KeyEvent.KEYCODE_MENU) {   // as holding OK
+                    if (event.getAction() == KeyEvent.ACTION_UP) showControlMenu(key, null);
+                    return true;
+                }
+                return pillKeys.onKey(v, keyCode, event);
+            });
+            pill.setOnClickListener(v -> perform(key));
+            pill.setOnLongClickListener(v -> {
+                showControlMenu(key, null);
+                return true;
+            });
+            LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams((int) (42 * density), (int) (42 * density));
+            lp.setMarginEnd((int) (10 * density));
+            statusPills.addView(pill, lp);
+            TvSounds.mute(pill);
+            if (key.equals(focusedKey)) pill.requestFocus();
+        }
+        if (focusedKey != null && statusPills.findFocus() == null && focused != null && !focused.isAttachedToWindow()) {
+            findViewById(R.id.btnSettings).requestFocus();   // the focused pill went away
+        }
+        styleStatusPills();
+    }
+
+    // ---- themes and the welcome banner (tvos_style) ---------------------------------------------------------
+
+    private ImageView themeView;
+    private BroadcastReceiver welcomeReceiver;
+    private View welcomeBanner;
+    private final java.util.concurrent.ExecutorService themeWorker = java.util.concurrent.Executors.newSingleThreadExecutor();
+
+    /**
+     * Switches to a theme at once: TvOS fades back to the slideshow; another is drawn off the main thread at
+     * screen size and fades in over it. The glass, the header and the accent follow.
+     */
+    void applyTheme(String id) {
+        Themes.select(this, id);
+        Themes.Theme theme = Themes.find(this, id);
+        refreshAccent();
+        if (themeView == null) return;
+        if (theme.photos()) {
+            themeView.animate().alpha(0f).setDuration(400).withEndAction(() -> themeView.setImageDrawable(null)).start();
+            LiquidGlass.setTheme(null);
+            return;
+        }
+        int w = getResources().getDisplayMetrics().widthPixels;
+        int h = getResources().getDisplayMetrics().heightPixels;
+        themeWorker.execute(() -> {
+            Bitmap picture = Themes.render(this, theme, w, h);
+            Bitmap small = LiquidGlass.smallCopy(picture);
+            saveTheme(theme, picture);
+            handler.post(() -> {
+                if (!theme.id.equals(Themes.current(this).id)) return;   // another was picked meanwhile
+                themeView.setImageBitmap(picture);
+                themeView.animate().alpha(1f).setDuration(450).start();
+                LiquidGlass.setTheme(small);
+                refreshAccent();   // a picture's own accent is known once it is painted
+            });
+        });
+    }
+
+    private File savedThemeFile() {
+        return new File(getFilesDir(), "theme_painted.png");
+    }
+
+    /** What a painting depends on: the theme, its pattern and brightness, a picture's date, and the screen size. */
+    private String themeKey(Themes.Theme t) {
+        return t.id + "|" + Themes.patternChoice(this, t) + "|" + Themes.brightnessChoice(this, t) + "|"
+                + (t.image != null ? t.image.lastModified() : 0) + "|" + getResources().getDisplayMetrics().widthPixels
+                + "x" + getResources().getDisplayMetrics().heightPixels;
+    }
+
+    /** Keeps the painting for the next start (PNG: no loss, so the grain against banding survives). */
+    private void saveTheme(Themes.Theme t, Bitmap picture) {
+        File file = savedThemeFile(), part = new File(getFilesDir(), "theme_painted.part");
+        try (java.io.FileOutputStream out = new java.io.FileOutputStream(part)) {
+            picture.compress(Bitmap.CompressFormat.PNG, 100, out);
+        } catch (java.io.IOException e) {
+            return;
+        }
+        if (part.renameTo(file)) getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).edit().putString("theme_painted_key", themeKey(t)).apply();
+    }
+
+    /** The saved painting of this theme with its current choices, or null when there is none or it is out of date. */
+    private Bitmap savedTheme(Themes.Theme t) {
+        File file = savedThemeFile();
+        if (!file.isFile() || !themeKey(t).equals(getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).getString("theme_painted_key", null))) return null;
+        try {
+            return BitmapFactory.decodeFile(file.getPath());
+        } catch (OutOfMemoryError e) {
+            return null;
+        }
+    }
+
+    /** The accent changed (a theme, or its accent choice): the pills that are on take it at once. */
+    void refreshAccent() {
+        refreshHomePills();
+    }
+
+    /** A status pill that is on: a disc in the theme's accent, white when focused like every control. */
+    private android.graphics.drawable.Drawable activePill() {
+        android.graphics.drawable.GradientDrawable on = new android.graphics.drawable.GradientDrawable();
+        on.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        on.setColor(Themes.accent(this));
+        on.setStroke((int) density, 0x40FFFFFF);
+        android.graphics.drawable.GradientDrawable focused = new android.graphics.drawable.GradientDrawable();
+        focused.setShape(android.graphics.drawable.GradientDrawable.OVAL);
+        focused.setColor(0xF5FFFFFF);
+        android.graphics.drawable.StateListDrawable states = new android.graphics.drawable.StateListDrawable();
+        states.addState(new int[]{android.R.attr.state_focused}, focused);
+        states.addState(new int[0], on);
+        return states;
+    }
+
+    // ---- the clock -----------------------------------------------------------------------------------------
+
+    /** The header clock's style and place (Settings, Clock). */
+    void applyClock() {
+        TextClock clock = findViewById(R.id.clockSmall);
+        if (clock == null || !tvosStyle) return;
+        ViewGroup bar = (ViewGroup) clock.getParent();
+        bar.removeView(clock);
+        View anchor = Clock.place(this) == Clock.RIGHT ? btnProfile : statusPills;
+        int at = bar.indexOfChild(anchor);
+        bar.addView(clock, at < 0 ? bar.getChildCount() : at);
+        LinearLayout.LayoutParams lp = (LinearLayout.LayoutParams) clock.getLayoutParams();
+        lp.setMarginStart((int) (12 * density));
+        lp.setMarginEnd(Clock.place(this) == Clock.RIGHT ? (int) (2 * density) : (int) (16 * density));
+        clock.setLayoutParams(lp);
+        int style = Clock.style(this);
+        clock.setFormat12Hour(style == Clock.WITH_DATE ? "h:mm  \u00B7  EEE d MMM" : "h:mm");
+        clock.setFormat24Hour(style == Clock.WITH_DATE ? "HH:mm  \u00B7  EEE d MMM" : "HH:mm");
+        clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, style == Clock.LARGE ? 30 : style == Clock.WITH_DATE ? 18 : 20);
+        android.graphics.Typeface face = UiFont.get(this, style == Clock.LARGE ? R.string.font_light : R.string.font_medium);
+        clock.setTypeface(face, style == Clock.BOLD ? android.graphics.Typeface.BOLD : android.graphics.Typeface.NORMAL);
+        if (style == Clock.GLASS) {
+            int pad = (int) (16 * density);
+            clock.setPadding(pad, (int) (8 * density), pad, (int) (8 * density));
+            clock.setBackground(new LiquidGlass.Background(clock, -1, 0x1FFFFFFF, false));
+        } else {
+            clock.setPadding(0, 0, 0, 0);
+            clock.setBackground(null);
+        }
+        headerLight = null;   // redo the clock's colour for the new style
+        updateHeaderContrast();
+    }
+
+    // ---- the volume display --------------------------------------------------------------------------------
+
+    /** Turns the volume display's service on or off, keeping any other accessibility services as they are. */
+    void setVolumeService(boolean on) {
+        String ours = getPackageName() + "/" + VolumeService.class.getName();
+        String list = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        List<String> services = new ArrayList<>();
+        if (!TextUtils.isEmpty(list)) for (String one : TextUtils.split(list, ":")) if (!one.isEmpty() && !one.equals(ours)) services.add(one);
+        if (on) services.add(ours);
+        try {
+            Settings.Secure.putString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, TextUtils.join(":", services));
+            if (on) Settings.Secure.putInt(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        } catch (SecurityException e) {
+            Toast.makeText(this, R.string.set_no_permission, Toast.LENGTH_LONG).show();
+        }
+        if (on) root.postDelayed(() -> {
+            if (!volumeServiceBound()) rebindAccessibility();
+        }, 1500);
+    }
+
+    /**
+     * Binds the enabled accessibility services again, the volume display among them: the list is cleared and
+     * accessibility switched off, then both put back a second later (what tools/theme.sh does for the remote helpers).
+     */
+    private void rebindAccessibility() {
+        setVolumeService(true);
+        String list = Settings.Secure.getString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES);
+        try {
+            Settings.Secure.putString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, "");
+            Settings.Secure.putInt(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 0);
+        } catch (SecurityException e) {
+            return;
+        }
+        root.postDelayed(() -> {
+            Settings.Secure.putString(getContentResolver(), Settings.Secure.ENABLED_ACCESSIBILITY_SERVICES, list);
+            Settings.Secure.putInt(getContentResolver(), Settings.Secure.ACCESSIBILITY_ENABLED, 1);
+        }, 1000);
+    }
+
+    /** The volume display's service is running (bound by Android), not just on the enabled list. */
+    private boolean volumeServiceBound() {
+        android.view.accessibility.AccessibilityManager am =
+                (android.view.accessibility.AccessibilityManager) getSystemService(ACCESSIBILITY_SERVICE);
+        for (android.accessibilityservice.AccessibilityServiceInfo info : am.getEnabledAccessibilityServiceList(
+                android.accessibilityservice.AccessibilityServiceInfo.FEEDBACK_ALL_MASK)) {
+            if (info.getId().endsWith(VolumeService.class.getSimpleName())) return true;
+        }
+        return false;
+    }
+
+    private VolumeView volumePreview;
+
+    /** Shows the volume display on Home as it will look, at the current volume, for a moment. */
+    void previewVolume() {
+        VolumeView.Look look = VolumeView.Look.read(this);
+        android.media.AudioManager audio = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        if (volumePreview != null) root.removeView(volumePreview);
+        VolumeView view = new VolumeView(this);
+        view.setLook(look, look.accent(this));
+        view.setLevel(audio.getStreamVolume(android.media.AudioManager.STREAM_MUSIC),
+                audio.getStreamMaxVolume(android.media.AudioManager.STREAM_MUSIC),
+                audio.isStreamMute(android.media.AudioManager.STREAM_MUSIC));
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, view.gravity());
+        int m = view.margin();
+        lp.setMargins(m, view.marginTop(), m, m);
+        // The settings sheet covers the right side: preview the right-hand styles at the left instead.
+        int horizontal = Gravity.getAbsoluteGravity(view.gravity(), View.LAYOUT_DIRECTION_LTR) & Gravity.HORIZONTAL_GRAVITY_MASK;
+        if (horizontal == Gravity.RIGHT) lp.gravity = (view.gravity() & Gravity.VERTICAL_GRAVITY_MASK) | Gravity.LEFT;
+        volumePreview = view;
+        root.addView(view, lp);
+        View shown = view;
+        root.postDelayed(() -> {
+            if (volumePreview != shown) return;
+            root.removeView(shown);
+            volumePreview = null;
+        }, VolumeView.showMs(look) + 1000);
+    }
+
+    // ---- the welcome banners -------------------------------------------------------------------------------
+
+    /**
+     * A welcome banner, top left: the chosen 3D emoji and the greeting, the message under it, on glass. The
+     * waving hand waves, the others bounce in; it stays the chosen time and fades. force shows it even when
+     * switched off (the preview in Settings).
+     */
+    void showWelcome(String when, boolean force) {
+        if (!force && !Welcome.on(this, when)) return;
+        if (welcomeBanner != null) root.removeView(welcomeBanner);
+        LinearLayout card = new LinearLayout(this);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = (int) (20 * density);
+        card.setPadding(pad, (int) (16 * density), (int) (32 * density), (int) (16 * density));
+        card.setBackground(new LiquidGlass.Background(card, 30 * density, 0x66141416, false));
+        card.setFocusable(false);
+        int emojiIndex = Welcome.emoji(this, when);
+        ImageView emoji = new ImageView(this);
+        emoji.setImageResource(Welcome.EMOJI_RES[emojiIndex]);
+        int size = (int) (76 * density);
+        card.addView(emoji, new LinearLayout.LayoutParams(size, size));
+        LinearLayout texts = new LinearLayout(this);
+        texts.setOrientation(LinearLayout.VERTICAL);
+        texts.setPadding((int) (18 * density), 0, 0, 0);
+        TextView greeting = new TextView(this);
+        greeting.setText(Welcome.title(this, when));
+        greeting.setTextColor(0xFFFFFFFF);
+        greeting.setTextSize(TypedValue.COMPLEX_UNIT_SP, 38);
+        greeting.setTypeface(UiFont.get(this, R.string.font_light));
+        greeting.setIncludeFontPadding(false);
+        greeting.setShadowLayer(12 * density, 0, density, 0x66000000);
+        texts.addView(greeting);
+        String text = Welcome.message(this, when);
+        if (!TextUtils.isEmpty(text)) {
+            TextView message = new TextView(this);
+            message.setText(text);
+            message.setTextColor(0xD9FFFFFF);
+            message.setTextSize(TypedValue.COMPLEX_UNIT_SP, 19);
+            message.setTypeface(UiFont.get(this, R.string.font_regular));
+            message.setPadding((int) (2 * density), (int) (8 * density), 0, 0);
+            message.setShadowLayer(10 * density, 0, density, 0x66000000);
+            texts.addView(message);
+        }
+        card.addView(texts);
+        card.setContentDescription(Welcome.title(this, when) + ". " + text);
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+        lp.setMargins((int) (56 * density), (int) (30 * density), 0, 0);
+        welcomeBanner = card;
+        root.addView(card, lp);
+        card.setAlpha(0f);
+        card.setTranslationY(-14 * density);
+        card.animate().alpha(1f).translationY(0f).setDuration(reducedMotion ? Motion.REDUCED_MS : 520)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
+        if (!reducedMotion) {
+            emoji.post(() -> {
+                android.animation.ObjectAnimator move;
+                if ("wave".equals(Welcome.EMOJI[emojiIndex])) {
+                    // The hand waves from the wrist a few times, as the emoji does.
+                    emoji.setPivotX(emoji.getWidth() * 0.7f);
+                    emoji.setPivotY(emoji.getHeight() * 0.9f);
+                    move = android.animation.ObjectAnimator.ofFloat(emoji, View.ROTATION, 0f, 20f, -10f, 20f, -10f, 14f, 0f);
+                    move.setDuration(1600);
+                } else {
+                    move = android.animation.ObjectAnimator.ofPropertyValuesHolder(emoji,
+                            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_X, 0.6f, 1.15f, 1f),
+                            android.animation.PropertyValuesHolder.ofFloat(View.SCALE_Y, 0.6f, 1.15f, 1f));
+                    move.setDuration(700);
+                    move.setInterpolator(new android.view.animation.OvershootInterpolator());
+                }
+                move.setStartDelay(300);
+                move.start();
+            });
+        }
+        View shown = card;
+        root.postDelayed(() -> {
+            if (welcomeBanner != shown) return;
+            shown.animate().alpha(0f).translationY(-10 * density).setDuration(600).withEndAction(() -> {
+                root.removeView(shown);
+                if (welcomeBanner == shown) welcomeBanner = null;
+            }).start();
+        }, Welcome.SECONDS[Welcome.seconds(this, when)] * 1000L);
+    }
+
+    /** Rebuilds the pills beside the clock after their list changed. */
+    void refreshHomePills() {
+        statusShown = "~";   // not a signature the pills can have: rebuild them
+        updateStatusPills();
+    }
+
+    /**
+     * The name of a connected audio device (headphones, a speaker, a soundbar). The remote stays connected all the
+     * time, so only audio counts: that is what tvOS shows beside its clock too.
+     */
+    private String connectedBluetoothDevice() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        try {
+            if (adapter == null || !adapter.isEnabled()) return null;
+            for (BluetoothDevice device : adapter.getBondedDevices()) {
+                if (!btConnected(device)) continue;
+                android.bluetooth.BluetoothClass type = device.getBluetoothClass();
+                if (type != null && type.getMajorDeviceClass() == android.bluetooth.BluetoothClass.Device.Major.AUDIO_VIDEO) {
+                    return btName(device);
+                }
+            }
+        } catch (SecurityException ignored) {
+            // No Bluetooth permission (Android 12+): no pill.
+        }
+        return null;
+    }
+
+    /** Minutes until the sleep-timer add-on puts the TV to sleep, rounded up; 0 with no timer or no add-on. */
+    private long sleepMinutesLeft() {
+        try (android.database.Cursor c = getContentResolver().query(SLEEP_STATE, null, null, null, null)) {
+            if (c == null || !c.moveToFirst()) return 0;
+            long left = c.getLong(0) - System.currentTimeMillis();
+            return left <= 0 ? 0 : (left + 59_999) / 60_000;
+        } catch (RuntimeException e) {
+            return 0;
+        }
+    }
+
     /** "2 connected", "On" or "Off", read once as the panel opens. */
-    private String bluetoothSummary(BluetoothAdapter adapter) {
+    String bluetoothSummary(BluetoothAdapter adapter) {
         try {
             if (!adapter.isEnabled()) return getString(R.string.bt_off);
             int connected = 0;
@@ -3183,7 +4042,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     }
 
     /** The Bluetooth dropdown: paired devices (connected first), then devices found by a scan, then Settings. */
-    private void showBluetooth() {
+    void showBluetooth() {
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter == null) {
             Toast.makeText(this, R.string.not_available, Toast.LENGTH_SHORT).show();

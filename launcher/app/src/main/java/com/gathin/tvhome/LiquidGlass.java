@@ -49,12 +49,16 @@ final class LiquidGlass {
     /** Box blur radius in small pixels, and passes: three box passes come close to a gaussian. */
     private static final int BLUR_RADIUS = 3, BLUR_PASSES = 3;
     private static Bitmap backdrop;
-    /** The wallpaper's backdrop, and the focused app's top-shelf picture's while one is shown. */
-    private static Bitmap base, overlay;
+    /**
+     * The wallpaper's backdrop, a drawn theme's (Themes) which covers the wallpaper, and the focused app's
+     * top-shelf picture's while one is shown, which covers both.
+     */
+    private static Bitmap base, themeBase, overlay;
     /** Small copies made on the decoder thread, waiting for their picture to reach the screen. */
     private static final Map<Bitmap, Bitmap> pending = Collections.synchronizedMap(new IdentityHashMap<>());
     /** Views drawing glass, redrawn when the backdrop changes. */
     private static final Set<View> hosts = Collections.newSetFromMap(new WeakHashMap<>());
+    private static final java.util.List<Runnable> backdropListeners = new ArrayList<>();
 
     private static final Paint glass = new Paint(Paint.ANTI_ALIAS_FLAG | Paint.FILTER_BITMAP_FLAG);
     private static final Paint tint = new Paint(Paint.ANTI_ALIAS_FLAG);
@@ -147,7 +151,7 @@ final class LiquidGlass {
         Bitmap small = pending.remove(picture);
         if (small == null) return;
         base = small;
-        if (overlay == null) use(small);
+        if (overlay == null && themeBase == null) use(small);
     }
 
     /**
@@ -156,6 +160,14 @@ final class LiquidGlass {
      */
     static void setOverlay(Bitmap small) {
         overlay = small;
+        Bitmap now = small != null ? small : themeBase != null ? themeBase : base;
+        if (now != null && now != backdrop) use(now);
+    }
+
+    /** A drawn theme's backdrop, or null to go back to the wallpaper's. */
+    static void setTheme(Bitmap small) {
+        themeBase = small;
+        if (overlay != null) return;
         Bitmap now = small != null ? small : base;
         if (now != null && now != backdrop) use(now);
     }
@@ -164,6 +176,32 @@ final class LiquidGlass {
         backdrop = small;
         glass.setShader(new BitmapShader(small, Shader.TileMode.CLAMP, Shader.TileMode.CLAMP));
         for (View host : new ArrayList<>(hosts)) host.invalidate();
+        for (Runnable listener : new ArrayList<>(backdropListeners)) listener.run();
+    }
+
+    /** Told whenever the picture behind the glass changes, e.g. to keep the header readable over it. */
+    static void onBackdropChanged(Runnable listener) {
+        backdropListeners.add(listener);
+    }
+
+    /**
+     * How bright the backdrop is over a part of the screen, 0 (black) to 1 (white), by relative luminance; the
+     * part is given as fractions of the screen. -1 while there is no backdrop.
+     */
+    static float brightness(float left, float top, float right, float bottom) {
+        if (backdrop == null) return -1f;
+        int x0 = Math.round(left * (SMALL_W - 1)), x1 = Math.round(right * (SMALL_W - 1));
+        int y0 = Math.round(top * (SMALL_H - 1)), y1 = Math.round(bottom * (SMALL_H - 1));
+        double sum = 0;
+        int n = 0;
+        for (int y = y0; y <= y1; y++) {
+            for (int x = x0; x <= x1; x++) {
+                int c = backdrop.getPixel(x, y);
+                sum += (0.2126 * ((c >> 16) & 0xFF) + 0.7152 * ((c >> 8) & 0xFF) + 0.0722 * (c & 0xFF)) / 255.0;
+                n++;
+            }
+        }
+        return n == 0 ? -1f : (float) (sum / n);
     }
 
     static void register(View host) {
@@ -242,7 +280,7 @@ final class LiquidGlass {
     static final class Background extends Drawable {
         private final View host;
         private final float radius;
-        private final int tintArgb;
+        private int tintArgb;
         private final boolean focusWhite;
         private final int[] at = new int[2];
         private final RectF rect = new RectF();
@@ -256,6 +294,13 @@ final class LiquidGlass {
             this.focusWhite = focusWhite;
             white.setColor(0xF5FFFFFF);
             register(host);
+        }
+
+        /** A lighter or darker glass, e.g. light glass for a dark icon over a bright sky. */
+        void setGlassTint(int argb) {
+            if (argb == tintArgb) return;
+            tintArgb = argb;
+            invalidateSelf();
         }
 
         private float radius() {

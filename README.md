@@ -6,7 +6,7 @@ uninstalled, a one-line restore) and then replaces the stock home screen with a 
 looks and feels like an Apple TV.
 
 <p align="center">
-  <img src="docs/tvos/home.jpg" alt="Home screen: the top row of apps in a glass band over a graphite gradient for the focused Apple TV app" width="800">
+  <img src="docs/tvos/home.jpg" alt="Home screen: the top row of apps in a glass band over a mountain landscape above a sea of fog" width="800">
 </p>
 
 Built and tested on a **Xiaomi Mi TV (MiTV-AXSO0, Android TV 9, 1 GB RAM)**. It should run on any Android TV
@@ -19,12 +19,20 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 
 | | |
 |---|---|
-| **Top shelf** | The focused top-row app fills the screen with its own brand-colour gradient (Netflix crimson, Prime blue, Hotstar violet…), and the glass takes on its colour. Other apps show rotating landscape photos. |
+| **Landscape slideshow** | Twelve aerial and landscape photos fill the screen behind everything, a new one every 30 minutes, like Apple TV's aerials. The glass takes on each photo's colours. |
 | **Liquid Glass** | The top-row band, the Control Center, menus and every app icon are frosted, see-through glass with a bright rim and sheen. Android 9 has no live blur, so each background leaves a small blurred copy that the glass draws from: it looks like glass and costs about 37 KB. |
 | **Gloss slider** | In the Control Center: Left and Right set how glossy everything is, from flat frosted glass (0%) to bright rims (100%). Remembered across restarts. |
 | **tvOS focus** | The focused icon lifts with a shadow, tilts toward the way you moved, and catches a sweep of light. Its name appears underneath. |
 | **Frosted grid** | Below the top row, the whole background blurs and dims, as on tvOS. |
-| **Control Center** | Power off, Wi-Fi, Inputs (HDMI and Live TV), Bluetooth (paired and nearby devices, pair and connect), Sleep timer, Reorder apps, Home settings, Settings and Google Assistant, each its own glass control. |
+| **Themes** | TvOS (the slideshow) and ten painted on the TV itself, each with its own pattern: Aurora curtains, a Sunset over mountain ridges, Ocean waves, Midnight contour lines, Graphite hexagons, Forest pines, Rose bokeh, a Nebula planet, Dune sand and a Neon synthwave grid. Each one's accent colour, pattern strength and brightness can be changed, and your own pictures become themes too. The glass, the header and the dock adapt to whatever is behind them. |
+| **Control Center** | Power off, Wi-Fi, Inputs (HDMI and Live TV), Bluetooth (paired and nearby devices, pair and connect), Sleep timer, Clear background apps, Home settings, Settings and Google Assistant, each its own glass control. Add, remove and reorder them, and pin any of them to Home as a round symbol beside the clock. |
+| **Status symbols** | What is on (Wi-Fi, a Bluetooth speaker or headphones, a running sleep timer) shows beside the clock, filled with the theme's accent colour. |
+| **Settings in the launcher** | Wi-Fi (networks, connect with a password, forget), Bluetooth, Inputs, Picture & sound, Apps, About & storage, Themes, Welcome, Volume display, Clock and Clear background apps, all in compact glass cards; one row still leads to Android's own settings. |
+| **Welcome banners** | One when the TV starts and one when it wakes, each with its own glossy 3D emoji, greeting, message and time on screen. |
+| **Volume display** | Six styles (Glass pill, tvOS bar, Side slider, Ring, Classic, Minimal line), in the theme's colour or one you choose, with a mute icon that stays while muted. Shown beside the TV's own volume bar; the Side slider sits over it and hides it. |
+| **Clear background apps** | Ends the background apps (never the launcher, the keyboard, Google services or your remote helpers) and shows the memory freed. |
+| **Clock** | Five styles, beside the profile picture or left of the symbols. |
+| **Profile** | Your picture (`profile.jpg` in the theme folder) beside the clock; it opens an account card with your Google account, Themes and Welcome. |
 | **Reorder mode** | Icons jiggle while you move them, as on tvOS. |
 | **Opening apps** | The app zooms out of its icon. |
 | **Sounds** | Its own soft tick when focus moves and a tock on OK, instead of Android's click. They follow the TV's sound-effects setting. |
@@ -35,12 +43,14 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 
 | | |
 |---|---|
-| ![Netflix focused: a deep crimson gradient fills the screen](docs/tvos/netflix.jpg) | ![JioHotstar focused: a blue-violet-magenta gradient](docs/tvos/hotstar.jpg) |
-| Netflix focused | JioHotstar focused |
-| ![Prime Video focused: a midnight-to-Prime-blue gradient](docs/tvos/prime.jpg) | ![The Control Center: Power off, Wi-Fi, Inputs, Bluetooth, Sleep timer, round buttons and the Gloss slider](docs/tvos/control-center.jpg) |
-| Prime Video focused | Control Center with the Gloss slider |
-| ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) | ![Reorder mode: the icons wobble at slightly different angles](docs/tvos/reorder.jpg) |
-| Frosted grid below the top row | Reorder mode |
+| ![A sunset over the sea between mountains behind the glass top row](docs/tvos/beach.jpg) | ![A mountain lake reflecting the peaks behind the glass top row](docs/tvos/lake.jpg) |
+| Another landscape from the slideshow | And another |
+| ![The Control Center: Power off, Wi-Fi, Inputs, Bluetooth, Sleep timer, round buttons and the Gloss slider](docs/tvos/control-center.jpg) | ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) |
+| Control Center with the Gloss slider | Frosted grid below the top row |
+| ![The Neon theme: a striped synthwave sun over a glowing grid](docs/tvos/theme-neon.jpg) | ![Settings, Themes: each theme with a preview of its pattern](docs/tvos/themes.jpg) |
+| The Neon theme | Themes, with a preview of each pattern |
+| ![The volume display as a glass pill under the header, beside the TV's own bar](docs/tvos/volume.jpg) | ![Reorder mode: the icons wobble at slightly different angles](docs/tvos/reorder.jpg) |
+| Volume display (Glass pill) | Reorder mode |
 | ![The aerial screensaver showing mountain ridges at dusk](docs/tvos/screensaver.jpg) | |
 | Aerial screensaver | |
 
@@ -67,7 +77,7 @@ You need a computer on the same Wi-Fi as the TV, with JDK 17, the Android SDK (p
    TV_HOST=<tv ip> launcher/build-and-install.sh
    ```
 
-5. **Push the theme** (landscapes, gradients and the look's settings):
+5. **Push the theme** (the landscapes and the look's settings):
 
    ```sh
    TV_HOST=<tv ip> tools/theme.sh themes/liquid-glass
@@ -91,10 +101,19 @@ Python client in `tools/` works around it.
 ## Make it yours
 
 - **Gloss:** the slider at the bottom of the Control Center.
-- **Top-shelf gradients:** colours per app are listed at the end of
-  [themes/liquid-glass/make_shelf.py](themes/liquid-glass/make_shelf.py). Change them, run
-  `tools/venv/bin/python themes/liquid-glass/make_shelf.py`, then push the theme again. Any picture works
-  too: put `shelf/<app package>.jpg` in the theme folder (for example `com.netflix.ninja.jpg`).
+- **Settings:** the gear in Control Center, or hold OK on the Control Center button.
+- **Themes:** Settings, Themes. OK switches; Right (or Menu) opens a theme's accent, pattern and brightness.
+- **Your own pictures as themes:** put them in a folder named `TV Themes` on a USB drive and choose Add under
+  Settings, Themes; or put them in `themes/liquid-glass/mythemes/` and push the theme.
+- **Control Center and Home symbols:** hold OK (or press Menu) on any control for Show on Home, Remove from
+  Control Center and the full list (Settings, Control Center & Home), where you can also reorder them.
+- **Welcome:** Settings, Welcome: a banner for start and one for wake, each with its own emoji, words and time.
+- **Profile picture and account:** `profile.jpg` and `account.txt` (your Google account's address, one line) in
+  the theme folder, then push it. Both are kept out of git.
+- **A picture per app (optional):** put `shelf/<app package>.jpg` in the theme folder (for example
+  `com.netflix.ninja.jpg`) and push the theme: while that top-row app is focused, its picture replaces the
+  slideshow. [themes/liquid-glass/make_shelf.py](themes/liquid-glass/make_shelf.py) draws brand-colour
+  gradients for this if you'd like them. With the folder empty, as shipped, the slideshow shows for every app.
 - **Background photos:** replace the JPEGs in [themes/liquid-glass/wallpapers/](themes/liquid-glass/wallpapers)
   (1920×1080, dark works best) and push the theme.
 - **Apps in the top row and their order:** Control Center → Reorder, or hold OK on an app and choose Move.
@@ -110,11 +129,15 @@ model's notes in [examples/](examples/README.md). Everything else is generic.
 ## Limits
 
 - No posters, trailers or "Continue watching" on the top shelf: Android TV apps don't hand those to other
-  launchers, so each app gets a gradient instead.
+  launchers, so the slideshow (or a picture you choose per app) fills it instead.
 - The glass is a blurred copy of the background, not live blur, which Android 9 doesn't have. It looks the
   same, but doesn't shimmer as things move behind it.
 - App icons are each app's own banner, so they don't get Apple's layered icons.
 - The TV draws its home screen at 1280×720, so 4K pictures look no sharper than 1080p ones.
+- On Xiaomi TVs the remote's volume keys never reach apps and System UI's own volume bar cannot be turned off
+  without root (its overlay must be signed by Xiaomi), so the launcher's volume display shows beside it, or over
+  it with the Side slider.
+- Android doesn't share your Google account photo with other apps; the profile picture is one you add.
 
 ## Credits
 
@@ -124,7 +147,9 @@ model's notes in [examples/](examples/README.md). Everything else is generic.
   [licence](launcher/FONT-LICENSE-INTER-OFL.txt)).
 - Landscape photos from Wikimedia Commons under Creative Commons licences, credited in
   [themes/liquid-glass/CREDITS.txt](themes/liquid-glass/CREDITS.txt).
-- The interface sounds and gradients are made for this project.
+- The interface sounds, the painted themes and the optional gradients are made for this project.
+- The welcome emoji are [Fluent Emoji](https://github.com/microsoft/fluentui-emoji) (3D) by Microsoft (MIT,
+  [licence](launcher/EMOJI-LICENSE-FLUENT-MIT.txt)).
 
 ---
 

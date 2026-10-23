@@ -1,0 +1,1282 @@
+package com.gathin.tvhome;
+
+import android.app.ActivityManager;
+import android.app.usage.StorageStats;
+import android.app.usage.StorageStatsManager;
+import android.bluetooth.BluetoothAdapter;
+import android.content.BroadcastReceiver;
+import android.content.Context;
+import android.content.Intent;
+import android.content.IntentFilter;
+import android.content.pm.ApplicationInfo;
+import android.content.pm.PackageInfo;
+import android.content.pm.PackageManager;
+import android.content.pm.ResolveInfo;
+import android.content.res.ColorStateList;
+import android.graphics.drawable.Drawable;
+import android.media.AudioManager;
+import android.net.ConnectivityManager;
+import android.net.LinkAddress;
+import android.net.LinkProperties;
+import android.net.Network;
+import android.net.NetworkCapabilities;
+import android.net.Uri;
+import android.net.wifi.ScanResult;
+import android.net.wifi.WifiConfiguration;
+import android.net.wifi.WifiInfo;
+import android.net.wifi.WifiManager;
+import android.os.Build;
+import android.os.Environment;
+import android.os.Handler;
+import android.os.Looper;
+import android.os.Process;
+import android.os.StatFs;
+import android.os.storage.StorageManager;
+import android.provider.Settings;
+import android.text.InputType;
+import android.text.TextUtils;
+import android.text.format.Formatter;
+import android.util.TypedValue;
+import android.view.Gravity;
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.ViewGroup;
+import android.view.inputmethod.EditorInfo;
+import android.widget.EditText;
+import android.widget.FrameLayout;
+import android.widget.ImageView;
+import android.widget.LinearLayout;
+import android.widget.ScrollView;
+import android.widget.TextView;
+import android.widget.Toast;
+
+import java.io.File;
+import java.net.Inet4Address;
+import java.util.ArrayDeque;
+import java.util.ArrayList;
+import java.util.Collections;
+import java.util.HashMap;
+import java.util.HashSet;
+import java.util.List;
+import java.util.Locale;
+import java.util.Map;
+import java.util.Set;
+import java.util.concurrent.Executors;
+
+/**
+ * tvos_style's own Settings: a glass sheet from the right edge with Wi-Fi, Bluetooth, Inputs, Picture & sound,
+ * Apps, About & storage and Home settings, so everyday changes never open Android's settings. One row at the
+ * bottom still does, for everything else. Back goes up a page and closes the sheet from the first one.
+ */
+final class SettingsSheet {
+    static final String HUB = "hub", WIFI = "wifi", SOUND = "sound", APPS = "apps", ABOUT = "about",
+            CONTROLS = "controls", ACCOUNT = "account", MEMORY = "memory", THEMES = "themes", WELCOME = "welcome",
+            VOLUME = "volume", CLOCK = "clock";
+    private static final String THEME = "theme:", BANNER = "banner:";
+    private static final String CONTROL = "control:";
+    private static final String PASSWORD = "password:", NETWORK = "network:", APP = "app:";
+    /** Screensaver start (Settings.System.SCREEN_OFF_TIMEOUT) and sleep (Settings.Secure.SLEEP_TIMEOUT), in ms. */
+    private static final int[] SCREENSAVER_MS = {60_000, 300_000, 900_000, 1_800_000, 3_600_000, Integer.MAX_VALUE};
+    private static final int[] SLEEP_MS = {1_800_000, 3_600_000, 10_800_000, 21_600_000, 43_200_000, -1};
+
+    private final MainActivity home;
+    private final float density;
+    private final WifiManager wifi;
+    private final Handler handler = new Handler(Looper.getMainLooper());
+    private final ArrayDeque<String> stack = new ArrayDeque<>();
+    /**
+     * The sheet, a view over Home in Home's own window: a PopupWindow keeps Back for itself, and Back here has to
+     * go up a page. Pages' rows are rebuilt in place; their tags say which row to focus again.
+     */
+    private FrameLayout sheet;
+    /** What had focus on Home before the sheet opened, to give it back on closing. */
+    private View focusBefore;
+    /** Shown as a compact card rather than the full-height sheet. */
+    private boolean compact;
+    private LinearLayout rows;
+    private TextView title;
+    private ScrollView scroll;
+    private BroadcastReceiver wifiReceiver;
+    /** The network a password is being typed for: SSID and its security, from the scan. */
+    private final Map<String, String> security = new HashMap<>();
+    /** App sizes worked out in the background for the Apps page, by package. */
+    private final Map<String, Long> appSizes = new HashMap<>();
+
+    SettingsSheet(MainActivity home) {
+        this.home = home;
+        this.density = home.getResources().getDisplayMetrics().density;
+        this.wifi = (WifiManager) home.getApplicationContext().getSystemService(Context.WIFI_SERVICE);
+    }
+
+    /** Opens the full sheet on a page (HUB, WIFI and so on); Back from it returns to the hub. */
+    void show(String page) {
+        show(page, false);
+    }
+
+    /**
+     * compact: a card the size of Control Center hanging under the header, with only this page, for a pill or a
+     * Control Center control; Back closes it. Otherwise the full-height sheet with the hub under the page.
+     */
+    void show(String page, boolean compact) {
+        if (isShowing() && this.compact != compact) dismiss();
+        this.compact = compact;
+        if (!isShowing()) open();
+        stack.clear();
+        if (!compact) stack.push(HUB);
+        if (page != null && !(HUB.equals(page) && !compact)) stack.push(page);
+        render(null);
+    }
+
+    // ---- the sheet ----------------------------------------------------------------------------------------
+
+    private void open() {
+        Context ctx = home;
+        int margin = (int) (24 * density);
+        // A compact card grows with its rows but stops at the bottom of the screen; the list scrolls instead.
+        int top = compact ? home.headerBottom() + (int) (8 * density) : margin;
+        int maxHeight = home.homeRoot().getHeight() - top - margin;
+        LinearLayout panel = new LinearLayout(ctx) {
+            @Override protected void onMeasure(int widthSpec, int heightSpec) {
+                super.onMeasure(widthSpec, compact ? MeasureSpec.makeMeasureSpec(maxHeight, MeasureSpec.AT_MOST) : heightSpec);
+            }
+        };
+        panel.setOrientation(LinearLayout.VERTICAL);
+        int pad = (int) (22 * density);
+        if (compact) pad = (int) (12 * density);
+        panel.setPadding(pad, (int) ((compact ? 16 : 26) * density), pad, pad);
+        title = new TextView(ctx);
+        title.setTextColor(0xFFFFFFFF);
+        title.setTextSize(TypedValue.COMPLEX_UNIT_SP, compact ? 20 : 26);
+        title.setTypeface(UiFont.get(ctx, R.string.font_medium));
+        title.setPadding((int) (6 * density), 0, 0, (int) (14 * density));
+        panel.addView(title);
+        scroll = new ScrollView(ctx);
+        scroll.setVerticalScrollBarEnabled(false);
+        scroll.setClipToPadding(false);
+        rows = new LinearLayout(ctx);
+        rows.setOrientation(LinearLayout.VERTICAL);
+        scroll.addView(rows, new ScrollView.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT));
+        panel.addView(scroll, compact
+                ? new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.WRAP_CONTENT, 1f)
+                : new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, 0, 1f));
+
+        // Back goes up a page and closes the sheet from the first; arrows never leave the sheet for Home behind it.
+        sheet = new FrameLayout(ctx) {
+            @Override public boolean dispatchKeyEvent(KeyEvent event) {
+                int code = event.getKeyCode();
+                if (code == KeyEvent.KEYCODE_BACK || code == KeyEvent.KEYCODE_ESCAPE) {
+                    if (event.getAction() == KeyEvent.ACTION_UP) {
+                        if (stack.size() > 1) back();
+                        else dismiss();
+                    }
+                    return true;
+                }
+                // A text field keeps Up and Down for its cursor, which a one-line field has no use for: move on instead.
+                View current = findFocus();
+                boolean vertical = code == KeyEvent.KEYCODE_DPAD_UP || code == KeyEvent.KEYCODE_DPAD_DOWN;
+                if (!(vertical && current instanceof EditText) && super.dispatchKeyEvent(event)) return true;
+                int direction = code == KeyEvent.KEYCODE_DPAD_UP ? View.FOCUS_UP : code == KeyEvent.KEYCODE_DPAD_DOWN
+                        ? View.FOCUS_DOWN : code == KeyEvent.KEYCODE_DPAD_LEFT ? View.FOCUS_LEFT
+                        : code == KeyEvent.KEYCODE_DPAD_RIGHT ? View.FOCUS_RIGHT : 0;
+                if (direction == 0) return false;
+                View focused = findFocus();
+                if (event.getAction() == KeyEvent.ACTION_DOWN && focused != null) {
+                    View next = android.view.FocusFinder.getInstance().findNextFocus(this, focused, direction);
+                    if (next != null) next.requestFocus(direction);
+                }
+                return true;
+            }
+        };
+        sheet.setClickable(true);   // touches on it never reach Home
+        int width = (int) ((compact ? 350 : 440) * density);
+        int height = compact ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;
+        FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(width, height, Gravity.END | Gravity.TOP);
+        lp.setMargins(margin, top, compact ? home.headerRightInset() : margin, margin);
+        sheet.addView(panel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height));
+        panel.setBackground(new LiquidGlass.Background(panel, (compact ? 24 : 28) * density, 0x99141416, false));
+        panel.setElevation(16 * density);
+        focusBefore = home.getCurrentFocus();
+        home.homeRoot().addView(sheet, lp);
+        panel.setAlpha(0f);
+        panel.setTranslationX(width / 4f);
+        panel.animate().alpha(1f).translationX(0f).setDuration(260)
+                .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
+    }
+
+    boolean isShowing() {
+        return sheet != null && sheet.getParent() != null;
+    }
+
+    /** Up a page, with focus on the row that led to the one being left. */
+    private void back() {
+        String from = stack.pop();
+        render(from.startsWith(PASSWORD) ? "net:" + from.substring(PASSWORD.length()) : from);
+    }
+
+    private void push(String page) {
+        stack.push(page);
+        render(null);
+    }
+
+    /** Closes the sheet and gives focus back to where it was on Home. */
+    void dismiss() {
+        if (!isShowing()) return;
+        stopWifi();
+        home.homeRoot().removeView(sheet);
+        if (focusBefore != null && focusBefore.isAttachedToWindow()) focusBefore.requestFocus();
+        focusBefore = null;
+    }
+
+    /** Rebuilds the top page, keeping focus on the row with focusTag (or the one focused now). */
+    private void render(Object focusTag) {
+        if (focusTag == null && rows.findFocus() != null) focusTag = rows.findFocus().getTag();
+        rows.removeAllViews();
+        String page = stack.peek();
+        if (WIFI.equals(page)) wifiPage();
+        else if (SOUND.equals(page)) soundPage();
+        else if (APPS.equals(page)) appsPage();
+        else if (ABOUT.equals(page)) aboutPage();
+        else if (CONTROLS.equals(page)) controlsPage();
+        else if (ACCOUNT.equals(page)) accountPage();
+        else if (MEMORY.equals(page)) memoryPage();
+        else if (THEMES.equals(page)) themesPage();
+        else if (WELCOME.equals(page)) welcomePage();
+        else if (VOLUME.equals(page)) volumePage();
+        else if (CLOCK.equals(page)) clockPage();
+        else if (page.startsWith(THEME)) themePage(page.substring(THEME.length()));
+        else if (page.startsWith(BANNER)) bannerPage(page.substring(BANNER.length()));
+        else if (page.startsWith(CONTROL)) controlPage(page.substring(CONTROL.length()));
+        else if (page.startsWith(PASSWORD)) passwordPage(page.substring(PASSWORD.length()));
+        else if (page.startsWith(NETWORK)) networkPage(page.substring(NETWORK.length()));
+        else if (page.startsWith(APP)) appPage(page.substring(APP.length()));
+        else hubPage();
+        if (WIFI.equals(page) || page.startsWith(NETWORK)) startWifi();
+        else stopWifi();
+        TvSounds.mute(rows);
+        View target = null;
+        if (focusTag != null) {
+            for (int i = 0; i < rows.getChildCount() && target == null; i++) {
+                if (focusTag.equals(rows.getChildAt(i).getTag())) target = rows.getChildAt(i);
+            }
+        }
+        if (target == null) {
+            for (int i = 0; i < rows.getChildCount() && target == null; i++) {
+                if (rows.getChildAt(i).isFocusable()) target = rows.getChildAt(i);
+            }
+        }
+        if (target != null) target.requestFocus();
+        else scroll.requestFocus();
+    }
+
+    // ---- rows ---------------------------------------------------------------------------------------------
+
+    /** A row; action null makes it information only. Chevron: it leads to a page; external: it leaves the launcher. */
+    private View row(int icon, CharSequence name, CharSequence value, String tag, boolean chevron, Runnable action) {
+        View row = home.getLayoutInflater().inflate(R.layout.item_setting_row, rows, false);
+        ImageView iconView = row.findViewById(R.id.icon);
+        if (icon != 0) iconView.setImageResource(icon);
+        else iconView.setVisibility(View.GONE);
+        ((TextView) row.findViewById(R.id.title)).setText(name);
+        TextView valueView = row.findViewById(R.id.value);
+        if (TextUtils.isEmpty(value)) valueView.setVisibility(View.GONE);
+        else valueView.setText(value);
+        row.findViewById(R.id.chevron).setVisibility(chevron ? View.VISIBLE : View.GONE);
+        row.setTag(tag != null ? tag : name.toString());
+        if (action != null) row.setOnClickListener(v -> action.run());
+        rows.addView(row);
+        return row;
+    }
+
+    /** A row that leaves for Android's own settings: an arrow out instead of the chevron. */
+    private void externalRow(int icon, CharSequence name, Intent intent) {
+        View row = row(icon, name, null, null, true, () -> {
+            dismiss();
+            home.open(intent);
+        });
+        ((ImageView) row.findViewById(R.id.chevron)).setImageResource(R.drawable.ic_external);
+    }
+
+    private void header(String text) {
+        TextView header = new TextView(home);
+        header.setText(text.toUpperCase(Locale.getDefault()));
+        header.setTextSize(TypedValue.COMPLEX_UNIT_SP, 11);
+        header.setLetterSpacing(0.12f);
+        header.setTextColor(0x8CFFFFFF);
+        int h = (int) (16 * density);
+        header.setPadding(h, (int) (14 * density), h, (int) (6 * density));
+        rows.addView(header);
+    }
+
+    /** Left and Right step through choices on the focused row, as OK does forwards. */
+    private void stepper(View row, Runnable previous, Runnable next) {
+        row.setOnKeyListener((v, keyCode, event) -> {
+            if (event.getAction() != KeyEvent.ACTION_DOWN) return false;
+            if (keyCode == KeyEvent.KEYCODE_DPAD_LEFT) previous.run();
+            else if (keyCode == KeyEvent.KEYCODE_DPAD_RIGHT) next.run();
+            else return false;
+            return true;
+        });
+    }
+
+    // ---- hub ----------------------------------------------------------------------------------------------
+
+    private void hubPage() {
+        title.setText(R.string.settings);
+        row(R.drawable.ic_wifi, home.getString(R.string.wifi), wifiSummary(), WIFI, true, () -> push(WIFI));
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter != null) {
+            row(R.drawable.ic_bluetooth, home.getString(R.string.bluetooth), home.bluetoothSummary(adapter), "bt", true, () -> {
+                dismiss();
+                home.homeRoot().post(home::showBluetooth);
+            });
+        }
+        row(R.drawable.ic_input, home.getString(R.string.inputs), null, "inputs", true, () -> {
+            dismiss();
+            home.homeRoot().post(home::showInputs);
+        });
+        row(R.drawable.ic_volume, home.getString(R.string.set_sound), null, SOUND, true, () -> push(SOUND));
+        row(R.drawable.ic_apps, home.getString(R.string.set_apps), null, APPS, true, () -> push(APPS));
+        row(R.drawable.ic_info, home.getString(R.string.set_about), Build.MODEL, ABOUT, true, () -> push(ABOUT));
+        row(R.drawable.ic_themes, home.getString(R.string.themes), Themes.current(home).title(home), THEMES, true,
+                () -> push(THEMES));
+        row(R.drawable.ic_wave, home.getString(R.string.welcome), null, WELCOME, true, () -> push(WELCOME));
+        row(R.drawable.ic_volume, home.getString(R.string.volume),
+                home.getString(VolumeView.Look.read(home).enabled ? VolumeView.STYLE_NAMES[VolumeView.Look.read(home).style] : R.string.bt_off),
+                VOLUME, true, () -> push(VOLUME));
+        row(R.drawable.ic_clock, home.getString(R.string.clock), home.getString(Clock.STYLE_NAMES[Clock.style(home)]), CLOCK, true,
+                () -> push(CLOCK));
+        row(R.drawable.ic_boost, home.getString(R.string.boost), null, MEMORY, true, () -> {
+            boostRequested = true;
+            push(MEMORY);
+        });
+        row(R.drawable.ic_control_center, home.getString(R.string.set_controls), null, CONTROLS, true, () -> push(CONTROLS));
+        row(R.drawable.ic_tune, home.getString(R.string.cc_home_settings), null, "home", true, () -> {
+            dismiss();
+            home.openLauncherSettings();
+        });
+        header(home.getString(R.string.set_more));
+        externalRow(R.drawable.ic_settings, home.getString(R.string.set_android), home.systemIntent(Settings.ACTION_SETTINGS));
+    }
+
+    // ---- Account ------------------------------------------------------------------------------------------
+
+    /** The profile button's card: the picture and account, the theme and welcome, and Google's own page. */
+    private void accountPage() {
+        title.setText(R.string.cc_profile);
+        String account = home.accountName();
+        View me = row(R.drawable.ic_person, account != null ? account : home.getString(R.string.acct_none), null, "me", false, null);
+        android.graphics.Bitmap photo = home.profileBitmap();
+        if (photo != null) {
+            ImageView icon = me.findViewById(R.id.icon);
+            icon.setImageBitmap(photo);
+            icon.setImageTintList((ColorStateList) null);
+            icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+            icon.setOutlineProvider(new android.view.ViewOutlineProvider() {
+                @Override public void getOutline(View view, android.graphics.Outline outline) {
+                    outline.setOval(0, 0, view.getWidth(), view.getHeight());
+                }
+            });
+            icon.setClipToOutline(true);
+        }
+        row(R.drawable.ic_themes, home.getString(R.string.themes), Themes.current(home).title(home), THEMES, true,
+                () -> push(THEMES));
+        row(R.drawable.ic_wave, home.getString(R.string.welcome), null, WELCOME, true, () -> push(WELCOME));
+        header(home.getString(R.string.set_more));
+        externalRow(R.drawable.ic_person, home.getString(R.string.acct_google), home.accountIntent());
+    }
+
+    // ---- Clear background apps ----------------------------------------------------------------------------
+
+    /** Set when the page is opened to clear: it clears once, in the background, and then shows the result. */
+    boolean boostRequested;
+    private Boost.Result boost;
+    private boolean boosting;
+
+    private void memoryPage() {
+        title.setText(R.string.boost);
+        if (boostRequested && !boosting) {
+            boostRequested = false;
+            boosting = true;
+            Executors.newSingleThreadExecutor().execute(() -> {
+                Boost.Result r = Boost.clear(home);
+                handler.post(() -> {
+                    boost = r;
+                    boosting = false;
+                    if (isShowing() && MEMORY.equals(stack.peek())) render("again");
+                });
+            });
+        }
+        if (boosting || boost == null) {
+            row(R.drawable.ic_boost, home.getString(R.string.boost_working), null, "working", false, null);
+            return;
+        }
+        row(R.drawable.ic_boost, home.getString(R.string.boost_cleared), home.getResources().getQuantityString(
+                R.plurals.boost_apps, boost.apps, boost.apps), "cleared", false, null);
+        row(0, home.getString(R.string.boost_freed), Formatter.formatShortFileSize(home, Math.max(0, boost.after - boost.before)),
+                "freed", false, null);
+        row(0, home.getString(R.string.boost_free_now), home.getString(R.string.set_free_of,
+                Formatter.formatShortFileSize(home, boost.after), Formatter.formatShortFileSize(home, boost.total)), "now", false, null);
+        row(0, home.getString(R.string.boost_again), null, "again", false, () -> {
+            boostRequested = true;
+            render("again");
+        });
+    }
+
+    // ---- Themes -------------------------------------------------------------------------------------------
+
+    private static final Map<String, android.graphics.Bitmap> previews = new HashMap<>();
+
+    /**
+     * Every theme with a preview: OK switches to it at once, Right or Menu opens its choices. Then your pictures,
+     * and the pictures found in a "TV Themes" folder on a USB drive, which OK adds and switches to.
+     */
+    private void themesPage() {
+        title.setText(R.string.themes);
+        Themes.Theme now = Themes.current(home);
+        row(R.drawable.ic_tune, home.getString(R.string.theme_customise, now.title(home)), null, "customise", true,
+                () -> push(THEME + now.id));
+        header(home.getString(R.string.themes));
+        List<Themes.Theme> all = Themes.all(home);
+        boolean mineHeader = false;
+        for (Themes.Theme t : all) {
+            if (t.image != null && !mineHeader) {
+                header(home.getString(R.string.theme_yours));
+                mineHeader = true;
+            }
+            themeRow(t, t.id.equals(now.id));
+        }
+        List<File> found = Themes.onDrives(home);
+        header(home.getString(R.string.theme_add));
+        for (File f : found) {
+            View row = row(R.drawable.ic_picture, f.getName(), home.getString(R.string.theme_add_one), "add:" + f.getName(), false, () -> {
+                Toast.makeText(home, R.string.theme_adding, Toast.LENGTH_SHORT).show();
+                Executors.newSingleThreadExecutor().execute(() -> {
+                    Themes.Theme added = Themes.importImage(home, f);
+                    handler.post(() -> {
+                        if (added == null) {
+                            Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+                            return;
+                        }
+                        home.applyTheme(added.id);
+                        render("theme:" + added.id);
+                    });
+                });
+            });
+            row.setTag("add:" + f.getName());
+        }
+        row(R.drawable.ic_info, home.getString(R.string.theme_how), null, "how", false, null);
+    }
+
+    private void themeRow(Themes.Theme t, boolean current) {
+        View row = row(0, t.title(home), current ? home.getString(R.string.theme_current) : null, "theme:" + t.id, true, () -> {
+            home.applyTheme(t.id);
+            render("theme:" + t.id);
+        });
+        row.setOnKeyListener((v, keyCode, event) -> {
+            if (keyCode != KeyEvent.KEYCODE_DPAD_RIGHT && keyCode != KeyEvent.KEYCODE_MENU) return false;
+            if (event.getAction() == KeyEvent.ACTION_UP) push(THEME + t.id);
+            return true;
+        });
+        android.graphics.Bitmap preview = previews.get(t.id + Themes.patternChoice(home, t) + Themes.brightnessChoice(home, t));
+        if (preview == null) {
+            preview = Themes.render(home, t, 80, 45);
+            previews.put(t.id + Themes.patternChoice(home, t) + Themes.brightnessChoice(home, t), preview);
+        }
+        ImageView icon = row.findViewById(R.id.icon);
+        icon.setVisibility(View.VISIBLE);
+        icon.setImageBitmap(preview);
+        icon.setImageTintList((ColorStateList) null);
+        icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        ViewGroup.LayoutParams lp = icon.getLayoutParams();
+        lp.width = (int) (44 * density);
+        lp.height = (int) (25 * density);
+        icon.setLayoutParams(lp);
+        icon.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 6 * density);
+            }
+        });
+        icon.setClipToOutline(true);
+    }
+
+    /** One theme's choices: use it, its accent, pattern strength and brightness; remove a picture of yours. */
+    private void themePage(String id) {
+        Themes.Theme t = Themes.find(home, id);
+        title.setText(t.title(home));
+        boolean current = t.id.equals(Themes.current(home).id);
+        row(R.drawable.ic_themes, home.getString(current ? R.string.theme_in_use : R.string.theme_use), null, "use",
+                false, current ? null : () -> {
+                    home.applyTheme(t.id);
+                    render("use");
+                });
+        Runnable redraw = () -> {
+            previews.clear();
+            if (t.id.equals(Themes.current(home).id)) home.applyTheme(t.id);
+        };
+        cycleRow(R.drawable.ic_gloss, R.string.theme_accent, Themes.ACCENT_NAMES, Themes.accentChoice(home, t), "accent", i -> {
+            Themes.setChoice(home, t, "accent", i);
+            home.refreshAccent();
+        });
+        if (t.image == null && !t.photos()) {
+            cycleRow(R.drawable.ic_themes, R.string.theme_pattern, Themes.PATTERN_NAMES, Themes.patternChoice(home, t), "pattern", i -> {
+                Themes.setChoice(home, t, "pattern", i);
+                redraw.run();
+            });
+        }
+        if (!t.photos()) {
+            cycleRow(R.drawable.ic_info, R.string.theme_brightness, Themes.BRIGHTNESS_NAMES, Themes.brightnessChoice(home, t), "bright", i -> {
+                Themes.setChoice(home, t, "bright", i);
+                redraw.run();
+            });
+        }
+        if (t.image != null && t.image.getParentFile() != null
+                && t.image.getParentFile().equals(new File(home.getFilesDir(), Themes.MY_THEMES))) {
+            header(home.getString(R.string.set_actions));
+            row(0, home.getString(R.string.theme_remove), null, "remove", false, () -> {
+                if (current) home.applyTheme(Themes.TVOS);
+                Themes.removeImage(home, t);
+                back();
+            });
+        }
+    }
+
+    interface Choose {
+        void chose(int index);
+    }
+
+    /** A row that steps through named choices: OK or Right for the next, Left for the previous. */
+    private View cycleRow(int icon, int name, int[] names, int current, String tag, Choose choose) {
+        int[] index = {Math.max(0, Math.min(names.length - 1, current))};
+        View row = row(icon, home.getString(name), home.getString(names[index[0]]), tag, false, null);
+        Runnable[] step = new Runnable[2];
+        for (int d = 0; d < 2; d++) {
+            int delta = d == 0 ? -1 : 1;
+            step[d] = () -> {
+                index[0] = (index[0] + delta + names.length) % names.length;
+                ((TextView) row.findViewById(R.id.value)).setText(names[index[0]]);
+                choose.chose(index[0]);
+            };
+        }
+        row.setOnClickListener(v -> step[1].run());
+        stepper(row, step[0], step[1]);
+        return row;
+    }
+
+    // ---- Welcome ------------------------------------------------------------------------------------------
+
+    /** The two banners: when the TV starts, and when it wakes. */
+    private void welcomePage() {
+        title.setText(R.string.welcome);
+        for (String when : new String[]{Welcome.START, Welcome.WAKE}) {
+            int name = Welcome.START.equals(when) ? R.string.welcome_start : R.string.welcome_wake;
+            View row = row(0, home.getString(name), Welcome.on(home, when)
+                    ? home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[Welcome.seconds(home, when)]))
+                    : home.getString(R.string.bt_off), when, true, () -> push(BANNER + when));
+            ImageView icon = row.findViewById(R.id.icon);
+            icon.setVisibility(View.VISIBLE);
+            icon.setImageResource(Welcome.EMOJI_RES[Welcome.emoji(home, when)]);
+            icon.setImageTintList((ColorStateList) null);
+        }
+    }
+
+    /** One banner: on or off, its emoji, greeting and message, how long it stays, and a preview on Home. */
+    private void bannerPage(String when) {
+        title.setText(Welcome.START.equals(when) ? R.string.welcome_start : R.string.welcome_wake);
+        View toggle = row(R.drawable.ic_wave, home.getString(R.string.welcome_show),
+                home.getString(Welcome.on(home, when) ? R.string.bt_on : R.string.bt_off), "on", false, () -> {
+                    Welcome.setOn(home, when, !Welcome.on(home, when));
+                    render("on");
+                });
+        stepper(toggle, toggle::performClick, toggle::performClick);
+        View emoji = cycleRow(0, R.string.welcome_emoji, Welcome.EMOJI_NAMES, Welcome.emoji(home, when), "emoji", i -> {
+            Welcome.setEmoji(home, when, i);
+            ((ImageView) rows.findViewWithTag("emoji").findViewById(R.id.icon)).setImageResource(Welcome.EMOJI_RES[i]);
+        });
+        ImageView icon = emoji.findViewById(R.id.icon);
+        icon.setVisibility(View.VISIBLE);
+        icon.setImageResource(Welcome.EMOJI_RES[Welcome.emoji(home, when)]);
+        icon.setImageTintList((ColorStateList) null);
+        int[] secondNames = new int[Welcome.SECONDS.length];
+        for (int i = 0; i < secondNames.length; i++) secondNames[i] = R.string.vol_seconds_value;
+        View seconds = row(R.drawable.ic_clock, home.getString(R.string.welcome_seconds),
+                home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[Welcome.seconds(home, when)])), "seconds", false, null);
+        int[] index = {Welcome.seconds(home, when)};
+        Runnable[] step = new Runnable[2];
+        for (int d = 0; d < 2; d++) {
+            int delta = d == 0 ? -1 : 1;
+            step[d] = () -> {
+                index[0] = (index[0] + delta + Welcome.SECONDS.length) % Welcome.SECONDS.length;
+                Welcome.setSeconds(home, when, index[0]);
+                ((TextView) seconds.findViewById(R.id.value)).setText(
+                        home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[index[0]])));
+            };
+        }
+        seconds.setOnClickListener(v -> step[1].run());
+        stepper(seconds, step[0], step[1]);
+        header(home.getString(R.string.welcome_title));
+        textField(Welcome.title(home, when), R.string.welcome_title, "title", text -> Welcome.setTitle(home, when, text));
+        header(home.getString(R.string.welcome_message));
+        textField(Welcome.message(home, when), R.string.welcome_message, "message", text -> Welcome.setMessage(home, when, text));
+        row(0, home.getString(R.string.welcome_preview), null, "preview", false, () -> {
+            dismiss();
+            home.showWelcome(when, true);
+        });
+    }
+
+    // ---- Volume display -----------------------------------------------------------------------------------
+
+    /** The volume display's choices; each change shows the display on Home as a preview. */
+    private void volumePage() {
+        title.setText(R.string.volume);
+        VolumeView.Look look = VolumeView.Look.read(home);
+        View on = row(R.drawable.ic_volume, home.getString(R.string.vol_on), home.getString(look.enabled ? R.string.bt_on : R.string.bt_off),
+                "on", false, () -> {
+                    VolumeView.Look l = VolumeView.Look.read(home);
+                    l.enabled = !l.enabled;
+                    l.save(home);
+                    home.setVolumeService(l.enabled);
+                    if (l.enabled) home.previewVolume();
+                    render("on");
+                });
+        stepper(on, on::performClick, on::performClick);
+        if (!look.enabled) {
+            row(R.drawable.ic_info, home.getString(R.string.vol_off_hint), null, "hint", false, null);
+            return;
+        }
+        cycleRow(R.drawable.ic_tune, R.string.vol_style, VolumeView.STYLE_NAMES, look.style, "style", i -> {
+            VolumeView.Look l = VolumeView.Look.read(home);
+            l.style = i;
+            l.save(home);
+            home.previewVolume();
+        });
+        cycleRow(R.drawable.ic_gloss, R.string.vol_colour, VolumeView.COLOUR_NAMES, look.colour, "colour", i -> {
+            VolumeView.Look l = VolumeView.Look.read(home);
+            l.colour = i;
+            l.save(home);
+            home.previewVolume();
+        });
+        cycleRow(R.drawable.ic_picture, R.string.vol_size, VolumeView.SIZE_NAMES, look.size, "size", i -> {
+            VolumeView.Look l = VolumeView.Look.read(home);
+            l.size = i;
+            l.save(home);
+            home.previewVolume();
+        });
+        View number = row(R.drawable.ic_info, home.getString(R.string.vol_number), home.getString(look.number ? R.string.bt_on : R.string.bt_off),
+                "number", false, () -> {
+                    VolumeView.Look l = VolumeView.Look.read(home);
+                    l.number = !l.number;
+                    l.save(home);
+                    home.previewVolume();
+                    render("number");
+                });
+        stepper(number, number::performClick, number::performClick);
+        View sticky = row(R.drawable.ic_volume, home.getString(R.string.vol_sticky), home.getString(look.stickyMute ? R.string.bt_on : R.string.bt_off),
+                "sticky", false, () -> {
+                    VolumeView.Look l = VolumeView.Look.read(home);
+                    l.stickyMute = !l.stickyMute;
+                    l.save(home);
+                    render("sticky");
+                });
+        stepper(sticky, sticky::performClick, sticky::performClick);
+        int[] secondNames = {R.string.vol_secs_short, R.string.vol_secs_medium, R.string.vol_secs_long};
+        cycleRow(R.drawable.ic_clock, R.string.vol_seconds, secondNames, look.seconds, "seconds", i -> {
+            VolumeView.Look l = VolumeView.Look.read(home);
+            l.seconds = i;
+            l.save(home);
+        });
+        row(R.drawable.ic_info, home.getString(R.string.vol_hint), null, "hint", false, null);
+    }
+
+    // ---- Clock --------------------------------------------------------------------------------------------
+
+    private void clockPage() {
+        title.setText(R.string.clock);
+        cycleRow(R.drawable.ic_clock, R.string.clock_style, Clock.STYLE_NAMES, Clock.style(home), "style", i -> {
+            Clock.setStyle(home, i);
+            home.applyClock();
+        });
+        cycleRow(R.drawable.ic_swap_vert, R.string.clock_place, Clock.PLACE_NAMES, Clock.place(home), "place", i -> {
+            Clock.setPlace(home, i);
+            home.applyClock();
+        });
+    }
+
+    interface Edit {
+        void changed(String text);
+    }
+
+    /** A text field in the sheet's glass style; Gboard comes up on OK. Saved as you type. */
+    private void textField(String text, int hint, String tag, Edit onChange) {
+        EditText field = new EditText(home);
+        field.setText(text);
+        field.setHint(hint);
+        field.setSingleLine(true);
+        field.setImeOptions(EditorInfo.IME_ACTION_DONE);
+        field.setTextColor(0xFFFFFFFF);
+        field.setHintTextColor(0x80FFFFFF);
+        field.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        field.setBackgroundResource(R.drawable.cc_tile_bg);
+        int p = (int) (16 * density);
+        field.setPadding(p, 0, p, 0);
+        field.setTag(tag);
+        field.setOnFocusChangeListener((v, focused) -> field.setTextColor(focused ? 0xFF111111 : 0xFFFFFFFF));
+        field.addTextChangedListener(new android.text.TextWatcher() {
+            @Override public void beforeTextChanged(CharSequence s, int start, int count, int after) { }
+
+            @Override public void onTextChanged(CharSequence s, int start, int before, int count) { }
+
+            @Override public void afterTextChanged(android.text.Editable s) {
+                onChange.changed(s.toString());
+            }
+        });
+        LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (54 * density));
+        lp.bottomMargin = (int) (4 * density);
+        rows.addView(field, lp);
+    }
+
+    // ---- Control Center & Home ----------------------------------------------------------------------------
+
+    /** Every control: Control Center's first, in its order, then the rest. OK on one opens its choices. */
+    private void controlsPage() {
+        title.setText(R.string.set_controls);
+        List<String> cc = Controls.controlCenter(home);
+        List<String> onHome = Controls.home(home);
+        header(home.getString(R.string.set_in_cc));
+        for (String key : cc) controlRow(key, onHome);
+        header(home.getString(R.string.set_more_controls));
+        for (String key : Controls.ALL) if (!cc.contains(key)) controlRow(key, onHome);
+    }
+
+    private void controlRow(String key, List<String> onHome) {
+        String value = onHome.contains(key) ? home.getString(R.string.set_on_home) : null;
+        row(Controls.icon(key), home.getString(Controls.label(key)), value, CONTROL + key, true, () -> push(CONTROL + key));
+    }
+
+    /** One control: in Control Center or not, on Home or not, and its place in Control Center. */
+    private void controlPage(String key) {
+        title.setText(Controls.label(key));
+        boolean inCc = Controls.controlCenter(home).contains(key);
+        View cc = row(R.drawable.ic_control_center, home.getString(R.string.set_show_cc),
+                home.getString(inCc ? R.string.bt_on : R.string.bt_off), "cc", false, () -> {
+                    Controls.setInControlCenter(home, key, !Controls.controlCenter(home).contains(key));
+                    render("cc");
+                });
+        stepper(cc, cc::performClick, cc::performClick);
+        if (Controls.canBeOnHome(key)) {
+            boolean onHome = Controls.home(home).contains(key);
+            String value = home.getString(onHome ? R.string.bt_on : R.string.bt_off);
+            if (onHome && Controls.status(key)) value = home.getString(R.string.set_while_on);
+            View pill = row(R.drawable.ic_home_settings_pill, home.getString(R.string.set_show_home), value, "home", false, () -> {
+                Controls.setOnHome(home, key, !Controls.home(home).contains(key));
+                home.refreshHomePills();
+                render("home");
+            });
+            stepper(pill, pill::performClick, pill::performClick);
+        }
+        if (inCc) {
+            header(home.getString(R.string.set_position));
+            List<String> order = Controls.controlCenter(home);
+            int at = order.indexOf(key);
+            row(0, home.getString(R.string.set_move_up), (at + 1) + " / " + order.size(), "up", false, () -> {
+                Controls.move(home, key, -1);
+                render("up");
+            });
+            row(0, home.getString(R.string.set_move_down), null, "down", false, () -> {
+                Controls.move(home, key, 1);
+                render("down");
+            });
+        }
+    }
+
+    // ---- Wi-Fi --------------------------------------------------------------------------------------------
+
+    private String wifiSummary() {
+        if (wifi == null) return null;
+        if (!wifi.isWifiEnabled()) return home.getString(R.string.bt_off);
+        String ssid = currentSsid();
+        return ssid != null ? ssid : home.getString(R.string.cc_wifi_off);
+    }
+
+    /** The connected network's name, without Android's quotes; null when not connected or unknown. */
+    private String currentSsid() {
+        WifiInfo info = wifi == null ? null : wifi.getConnectionInfo();
+        if (info == null || info.getNetworkId() == -1) return null;
+        String ssid = info.getSSID();
+        if (ssid == null || ssid.equals(WifiManager.UNKNOWN_SSID) || ssid.equals("<unknown ssid>")) return null;
+        return unquote(ssid);
+    }
+
+    private static String unquote(String ssid) {
+        return ssid.length() > 1 && ssid.startsWith("\"") && ssid.endsWith("\"") ? ssid.substring(1, ssid.length() - 1) : ssid;
+    }
+
+    private String signal(int rssi) {
+        int level = WifiManager.calculateSignalLevel(rssi, 4);
+        return home.getString(level >= 3 ? R.string.set_signal_excellent : level == 2 ? R.string.set_signal_good
+                : level == 1 ? R.string.set_signal_fair : R.string.set_signal_weak);
+    }
+
+    private void wifiPage() {
+        title.setText(R.string.wifi);
+        if (wifi == null) {
+            row(R.drawable.ic_wifi, home.getString(R.string.not_available), null, null, false, null);
+            return;
+        }
+        boolean on = wifi.isWifiEnabled();
+        View toggle = row(R.drawable.ic_wifi, home.getString(R.string.wifi), home.getString(on ? R.string.bt_on : R.string.bt_off),
+                "toggle", false, () -> {
+                    wifi.setWifiEnabled(!wifi.isWifiEnabled());
+                    handler.postDelayed(() -> render("toggle"), 600);
+                });
+        stepper(toggle, () -> toggle.performClick(), () -> toggle.performClick());
+        if (!on) return;
+        String current = currentSsid();
+        WifiInfo info = wifi.getConnectionInfo();
+        if (current != null) {
+            header(home.getString(R.string.cc_connected));
+            row(R.drawable.ic_wifi, current, signal(info.getRssi()), NETWORK + current, true, () -> push(NETWORK + current));
+        }
+        header(home.getString(R.string.set_networks));
+        Set<String> saved = new HashSet<>();
+        try {
+            List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
+            if (configs != null) for (WifiConfiguration c : configs) if (c.SSID != null) saved.add(unquote(c.SSID));
+        } catch (SecurityException ignored) {
+            // Without location access: no "Saved" labels.
+        }
+        Map<String, ScanResult> best = new HashMap<>();
+        List<ScanResult> results;
+        try {
+            results = wifi.getScanResults();
+        } catch (SecurityException e) {
+            results = Collections.emptyList();
+        }
+        for (ScanResult r : results) {
+            if (TextUtils.isEmpty(r.SSID) || r.SSID.equals(current)) continue;
+            ScanResult known = best.get(r.SSID);
+            if (known == null || r.level > known.level) best.put(r.SSID, r);
+        }
+        List<ScanResult> list = new ArrayList<>(best.values());
+        Collections.sort(list, (a, b) -> Integer.compare(b.level, a.level));
+        if (list.isEmpty()) {
+            row(0, home.getString(R.string.bt_searching), null, "searching", false, null);
+        }
+        for (int i = 0; i < Math.min(15, list.size()); i++) {
+            ScanResult r = list.get(i);
+            boolean secured = secured(r.capabilities);
+            boolean isSaved = saved.contains(r.SSID);
+            String value = (isSaved ? home.getString(R.string.set_saved) + " · " : "") + signal(r.level);
+            View row = row(secured ? R.drawable.ic_lock_small : R.drawable.ic_wifi, r.SSID, value, "net:" + r.SSID, !isSaved && secured, () -> {
+                if (isSaved) connectSaved(r.SSID);
+                else if (!secured) connect(r.SSID, null, r.capabilities);
+                else {
+                    security.put(r.SSID, r.capabilities);
+                    push(PASSWORD + r.SSID);
+                }
+            });
+            row.setContentDescription(r.SSID);
+        }
+        View rescan = row(0, home.getString(R.string.bt_search_again), null, "rescan", false, () -> {
+            wifi.startScan();
+            Toast.makeText(home, R.string.bt_searching, Toast.LENGTH_SHORT).show();
+        });
+        rescan.setAlpha(0.8f);
+    }
+
+    private static boolean secured(String capabilities) {
+        return capabilities != null && (capabilities.contains("WPA") || capabilities.contains("WEP")
+                || capabilities.contains("PSK") || capabilities.contains("SAE") || capabilities.contains("EAP"));
+    }
+
+    /** The connected network: its details, and disconnect or forget. */
+    private void networkPage(String ssid) {
+        title.setText(ssid);
+        WifiInfo info = wifi.getConnectionInfo();
+        boolean connected = ssid.equals(currentSsid());
+        if (connected) {
+            row(0, home.getString(R.string.set_signal), signal(info.getRssi()), null, false, null);
+            row(0, home.getString(R.string.set_ip), ipAddress(), null, false, null);
+            row(0, home.getString(R.string.set_frequency), (info.getFrequency() >= 4900 ? "5 GHz" : "2.4 GHz"), null, false, null);
+            row(0, home.getString(R.string.set_speed), info.getLinkSpeed() + " Mbps", null, false, null);
+        }
+        header(home.getString(R.string.set_actions));
+        if (connected) {
+            row(0, home.getString(R.string.set_disconnect), null, "disconnect", false, () -> {
+                wifi.disconnect();
+                back();
+            });
+        }
+        row(0, home.getString(R.string.set_forget), null, "forget", false, () -> {
+            int id = networkId(ssid);
+            if (id != -1 && wifi.removeNetwork(id)) {
+                wifi.saveConfiguration();
+                Toast.makeText(home, home.getString(R.string.set_forgotten, ssid), Toast.LENGTH_SHORT).show();
+                back();
+            } else {
+                // Android lets an app forget only the networks it added itself.
+                Toast.makeText(home, R.string.set_forget_android, Toast.LENGTH_LONG).show();
+                dismiss();
+                home.open(home.systemIntent(Settings.ACTION_WIFI_SETTINGS));
+            }
+        });
+    }
+
+    private void passwordPage(String ssid) {
+        title.setText(ssid);
+        EditText field = new EditText(home);
+        field.setHint(R.string.set_password);
+        field.setSingleLine(true);
+        field.setInputType(InputType.TYPE_CLASS_TEXT | InputType.TYPE_TEXT_VARIATION_PASSWORD);
+        field.setImeOptions(EditorInfo.IME_ACTION_GO);
+        field.setTextColor(0xFFFFFFFF);
+        field.setHintTextColor(0x80FFFFFF);
+        field.setTextSize(TypedValue.COMPLEX_UNIT_SP, 18);
+        field.setBackgroundResource(R.drawable.cc_tile_bg);
+        int p = (int) (16 * density);
+        field.setPadding(p, 0, p, 0);
+        field.setTag("field");
+        field.setOnFocusChangeListener((v, focused) -> field.setTextColor(focused ? 0xFF111111 : 0xFFFFFFFF));
+        rows.addView(field, new LinearLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, (int) (54 * density)));
+        Runnable go = () -> {
+            String password = field.getText().toString();
+            if (password.length() < 8 && !security.getOrDefault(ssid, "").contains("WEP")) {
+                Toast.makeText(home, R.string.set_password_short, Toast.LENGTH_SHORT).show();
+                return;
+            }
+            connect(ssid, password, security.get(ssid));
+            back();
+        };
+        field.setOnEditorActionListener((v, actionId, event) -> {
+            go.run();
+            return true;
+        });
+        View show = row(0, home.getString(R.string.set_show_password), home.getString(R.string.bt_off), "show", false, null);
+        show.setOnClickListener(v -> {
+            boolean visible = (field.getInputType() & InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD) != 0;
+            field.setInputType(InputType.TYPE_CLASS_TEXT | (visible ? InputType.TYPE_TEXT_VARIATION_PASSWORD
+                    : InputType.TYPE_TEXT_VARIATION_VISIBLE_PASSWORD));
+            field.setSelection(field.getText().length());
+            ((TextView) show.findViewById(R.id.value)).setText(visible ? R.string.bt_off : R.string.bt_on);
+        });
+        row(R.drawable.ic_wifi, home.getString(R.string.set_connect), null, "connect", false, go);
+    }
+
+    private int networkId(String ssid) {
+        try {
+            List<WifiConfiguration> configs = wifi.getConfiguredNetworks();
+            if (configs != null) for (WifiConfiguration c : configs) if (ssid.equals(unquote(String.valueOf(c.SSID)))) return c.networkId;
+        } catch (SecurityException ignored) {
+            // Unknown.
+        }
+        return -1;
+    }
+
+    private void connectSaved(String ssid) {
+        int id = networkId(ssid);
+        if (id == -1) {
+            Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        wifi.disconnect();
+        wifi.enableNetwork(id, true);
+        wifi.reconnect();
+        Toast.makeText(home, home.getString(R.string.set_connecting, ssid), Toast.LENGTH_SHORT).show();
+    }
+
+    /** Adds the network (WPA/WPA2 with a password, WEP, or open) and switches to it. */
+    private void connect(String ssid, String password, String capabilities) {
+        WifiConfiguration config = new WifiConfiguration();
+        config.SSID = "\"" + ssid + "\"";
+        if (password == null) {
+            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+        } else if (capabilities != null && capabilities.contains("WEP")) {
+            config.allowedKeyManagement.set(WifiConfiguration.KeyMgmt.NONE);
+            config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.OPEN);
+            config.allowedAuthAlgorithms.set(WifiConfiguration.AuthAlgorithm.SHARED);
+            config.wepKeys[0] = "\"" + password + "\"";
+            config.wepTxKeyIndex = 0;
+        } else {
+            config.preSharedKey = "\"" + password + "\"";
+        }
+        int id = wifi.addNetwork(config);
+        if (id == -1) id = networkId(ssid);
+        if (id == -1) {
+            Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+            return;
+        }
+        wifi.disconnect();
+        wifi.enableNetwork(id, true);
+        wifi.reconnect();
+        Toast.makeText(home, home.getString(R.string.set_connecting, ssid), Toast.LENGTH_SHORT).show();
+    }
+
+    /** While a Wi-Fi page is open: rescan, and redraw as results, the connection or Wi-Fi itself change. */
+    private void startWifi() {
+        if (wifiReceiver != null || wifi == null) return;
+        wifiReceiver = new BroadcastReceiver() {
+            @Override public void onReceive(Context context, Intent intent) {
+                if (WifiManager.SUPPLICANT_STATE_CHANGED_ACTION.equals(intent.getAction())
+                        && intent.getIntExtra(WifiManager.EXTRA_SUPPLICANT_ERROR, 0) == WifiManager.ERROR_AUTHENTICATING) {
+                    Toast.makeText(home, R.string.set_wrong_password, Toast.LENGTH_LONG).show();
+                }
+                String page = stack.peek();
+                if (isShowing() && page != null && (WIFI.equals(page) || page.startsWith(NETWORK))) {
+                    render(null);
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(WifiManager.SCAN_RESULTS_AVAILABLE_ACTION);
+        filter.addAction(WifiManager.NETWORK_STATE_CHANGED_ACTION);
+        filter.addAction(WifiManager.WIFI_STATE_CHANGED_ACTION);
+        filter.addAction(WifiManager.SUPPLICANT_STATE_CHANGED_ACTION);
+        home.registerReceiver(wifiReceiver, filter);
+        wifi.startScan();
+    }
+
+    private void stopWifi() {
+        if (wifiReceiver == null) return;
+        try {
+            home.unregisterReceiver(wifiReceiver);
+        } catch (IllegalArgumentException ignored) {
+            // Already gone.
+        }
+        wifiReceiver = null;
+    }
+
+    // ---- Picture & sound ----------------------------------------------------------------------------------
+
+    private void soundPage() {
+        title.setText(R.string.set_sound);
+        AudioManager audio = (AudioManager) home.getSystemService(Context.AUDIO_SERVICE);
+        int max = audio.getStreamMaxVolume(AudioManager.STREAM_MUSIC);
+        View volume = row(R.drawable.ic_volume, home.getString(R.string.set_volume),
+                audio.getStreamVolume(AudioManager.STREAM_MUSIC) + " / " + max, "volume", false, null);
+        Runnable[] step = new Runnable[2];
+        for (int d = 0; d < 2; d++) {
+            int delta = d == 0 ? -1 : 1;
+            step[d] = () -> {
+                int v = Math.max(0, Math.min(max, audio.getStreamVolume(AudioManager.STREAM_MUSIC) + delta));
+                audio.setStreamVolume(AudioManager.STREAM_MUSIC, v, AudioManager.FLAG_PLAY_SOUND);
+                ((TextView) volume.findViewById(R.id.value)).setText(v + " / " + max);
+            };
+        }
+        stepper(volume, step[0], step[1]);
+        volume.setOnClickListener(v -> step[1].run());
+
+        boolean canWrite = Settings.System.canWrite(home);
+        choiceRow(R.drawable.ic_sleep, R.string.set_screensaver, "screensaver", SCREENSAVER_MS,
+                Settings.System.getInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 300_000),
+                ms -> canWrite && Settings.System.putInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, ms));
+        choiceRow(R.drawable.ic_power, R.string.set_sleep, "sleep", SLEEP_MS,
+                Settings.Secure.getInt(home.getContentResolver(), "sleep_timeout", -1),
+                ms -> {
+                    try {
+                        return Settings.Secure.putInt(home.getContentResolver(), "sleep_timeout", ms);
+                    } catch (SecurityException e) {
+                        return false;
+                    }
+                });
+        boolean effects = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+        View sounds = row(R.drawable.ic_gloss, home.getString(R.string.set_sound_effects),
+                home.getString(effects ? R.string.bt_on : R.string.bt_off), "effects", false, null);
+        sounds.setOnClickListener(v -> {
+            boolean on = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) == 0;
+            if (!canWrite || !Settings.System.putInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, on ? 1 : 0)) {
+                Toast.makeText(home, R.string.set_no_permission, Toast.LENGTH_LONG).show();
+                return;
+            }
+            if (on) audio.loadSoundEffects();
+            else audio.unloadSoundEffects();
+            TvSounds.setEnabled(home, on);
+            ((TextView) sounds.findViewById(R.id.value)).setText(on ? R.string.bt_on : R.string.bt_off);
+        });
+        stepper(sounds, sounds::performClick, sounds::performClick);
+        header(home.getString(R.string.set_more));
+        // Picture modes and brightness belong to the TV maker's own settings; no app can reach them.
+        externalRow(R.drawable.ic_picture, home.getString(R.string.set_picture), home.systemIntent(Settings.ACTION_DISPLAY_SETTINGS));
+    }
+
+    interface Apply {
+        boolean set(int ms);
+    }
+
+    /** A row that steps through times: OK or Right for the next, Left for the previous. */
+    private void choiceRow(int icon, int name, String tag, int[] choices, int current, Apply apply) {
+        int[] index = {0};
+        for (int i = 0; i < choices.length; i++) if (choices[i] == current) index[0] = i;
+        View row = row(icon, home.getString(name), duration(choices[index[0]]), tag, false, null);
+        Runnable[] step = new Runnable[2];
+        for (int d = 0; d < 2; d++) {
+            int delta = d == 0 ? -1 : 1;
+            step[d] = () -> {
+                int next = (index[0] + delta + choices.length) % choices.length;
+                if (!apply.set(choices[next])) {
+                    Toast.makeText(home, R.string.set_no_permission, Toast.LENGTH_LONG).show();
+                    return;
+                }
+                index[0] = next;
+                ((TextView) row.findViewById(R.id.value)).setText(duration(choices[next]));
+            };
+        }
+        row.setOnClickListener(v -> step[1].run());
+        stepper(row, step[0], step[1]);
+    }
+
+    private String duration(int ms) {
+        if (ms < 0 || ms == Integer.MAX_VALUE) return home.getString(R.string.set_never);
+        int minutes = ms / 60_000;
+        return minutes >= 60 ? home.getString(R.string.set_hours, minutes / 60) : home.getString(R.string.set_minutes, minutes);
+    }
+
+    // ---- Apps ---------------------------------------------------------------------------------------------
+
+    private List<ResolveInfo> launchable() {
+        PackageManager pm = home.getPackageManager();
+        List<ResolveInfo> all = new ArrayList<>(pm.queryIntentActivities(
+                new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LEANBACK_LAUNCHER), 0));
+        all.addAll(pm.queryIntentActivities(new Intent(Intent.ACTION_MAIN).addCategory(Intent.CATEGORY_LAUNCHER), 0));
+        Set<String> seen = new HashSet<>();
+        List<ResolveInfo> apps = new ArrayList<>();
+        for (ResolveInfo r : all) {
+            String pkg = r.activityInfo.packageName;
+            if (pkg.equals(home.getPackageName()) || !seen.add(pkg)) continue;
+            apps.add(r);
+        }
+        Collections.sort(apps, (a, b) -> String.valueOf(a.loadLabel(pm)).compareToIgnoreCase(String.valueOf(b.loadLabel(pm))));
+        return apps;
+    }
+
+    private void appsPage() {
+        title.setText(R.string.set_apps);
+        PackageManager pm = home.getPackageManager();
+        List<ResolveInfo> apps = launchable();
+        List<String> missing = new ArrayList<>();
+        for (ResolveInfo r : apps) {
+            String pkg = r.activityInfo.packageName;
+            Long size = appSizes.get(pkg);
+            if (size == null) missing.add(pkg);
+            View row = row(0, r.loadLabel(pm), size == null ? null : Formatter.formatShortFileSize(home, size),
+                    APP + pkg, true, () -> push(APP + pkg));
+            ImageView icon = row.findViewById(R.id.icon);
+            Drawable drawable = r.loadIcon(pm);
+            icon.setImageDrawable(drawable);
+            icon.setImageTintList((ColorStateList) null);
+            icon.setVisibility(View.VISIBLE);
+        }
+        if (!missing.isEmpty()) {
+            // Sizes need usage access (granted by the install script); work them out off the main thread.
+            Executors.newSingleThreadExecutor().execute(() -> {
+                for (String pkg : missing) appSizes.put(pkg, appSize(pkg));
+                handler.post(() -> {
+                    if (isShowing() && APPS.equals(stack.peek())) render(null);
+                });
+            });
+        }
+    }
+
+    /** App, data and cache together, in bytes; 0 without usage access. */
+    private long appSize(String pkg) {
+        try {
+            StorageStatsManager stats = (StorageStatsManager) home.getSystemService(Context.STORAGE_STATS_SERVICE);
+            StorageStats s = stats.queryStatsForPackage(StorageManager.UUID_DEFAULT, pkg, Process.myUserHandle());
+            return s.getAppBytes() + s.getDataBytes() + s.getCacheBytes();
+        } catch (Exception e) {
+            return 0;
+        }
+    }
+
+    private void appPage(String pkg) {
+        PackageManager pm = home.getPackageManager();
+        ApplicationInfo app;
+        PackageInfo info;
+        try {
+            app = pm.getApplicationInfo(pkg, 0);
+            info = pm.getPackageInfo(pkg, 0);
+        } catch (PackageManager.NameNotFoundException e) {
+            back();
+            return;
+        }
+        title.setText(pm.getApplicationLabel(app));
+        row(0, home.getString(R.string.set_version), info.versionName, null, false, null);
+        Long size = appSizes.get(pkg);
+        if (size != null && size > 0) row(0, home.getString(R.string.set_size), Formatter.formatShortFileSize(home, size), null, false, null);
+        header(home.getString(R.string.set_actions));
+        Intent launch = pm.getLeanbackLaunchIntentForPackage(pkg);
+        if (launch == null) launch = pm.getLaunchIntentForPackage(pkg);
+        Intent start = launch;
+        if (start != null) {
+            row(0, home.getString(R.string.set_open), null, "open", false, () -> {
+                dismiss();
+                home.open(start);
+            });
+        }
+        row(0, home.getString(R.string.set_stop), null, "stop", false, () -> {
+            // A launcher cannot force-stop another app; this ends its background processes, as Android allows.
+            ((ActivityManager) home.getSystemService(Context.ACTIVITY_SERVICE)).killBackgroundProcesses(pkg);
+            Toast.makeText(home, home.getString(R.string.set_stopped, pm.getApplicationLabel(app)), Toast.LENGTH_SHORT).show();
+        });
+        if ((app.flags & ApplicationInfo.FLAG_SYSTEM) == 0) {
+            row(0, home.getString(R.string.set_uninstall), null, "uninstall", false, () -> {
+                dismiss();
+                home.open(new Intent(Intent.ACTION_DELETE, Uri.parse("package:" + pkg)));
+            });
+        }
+        header(home.getString(R.string.set_more));
+        externalRow(R.drawable.ic_settings, home.getString(R.string.set_app_info),
+                new Intent(Settings.ACTION_APPLICATION_DETAILS_SETTINGS, Uri.parse("package:" + pkg)));
+    }
+
+    // ---- About & storage ----------------------------------------------------------------------------------
+
+    private void aboutPage() {
+        title.setText(R.string.set_about);
+        String maker = Build.MANUFACTURER.isEmpty() ? "" : Character.toUpperCase(Build.MANUFACTURER.charAt(0)) + Build.MANUFACTURER.substring(1) + " ";
+        row(0, home.getString(R.string.set_model), maker + Build.MODEL, null, false, null);
+        row(0, home.getString(R.string.set_android_version), Build.VERSION.RELEASE + " (API " + Build.VERSION.SDK_INT + ")", null, false, null);
+        row(0, home.getString(R.string.set_build), Build.DISPLAY, null, false, null);
+        header(home.getString(R.string.set_network));
+        String ssid = wifi == null ? null : currentSsid();
+        row(0, home.getString(R.string.set_network), ssid != null ? ssid : home.networkConnected()
+                ? home.getString(R.string.cc_connected) : home.getString(R.string.cc_wifi_off), null, false, null);
+        row(0, home.getString(R.string.set_ip), ipAddress(), null, false, null);
+        header(home.getString(R.string.set_storage));
+        StatFs data = new StatFs(Environment.getDataDirectory().getPath());
+        row(0, home.getString(R.string.set_storage), home.getString(R.string.set_free_of,
+                Formatter.formatShortFileSize(home, data.getAvailableBytes()),
+                Formatter.formatShortFileSize(home, data.getTotalBytes())), null, false, null);
+        ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
+        ((ActivityManager) home.getSystemService(Context.ACTIVITY_SERVICE)).getMemoryInfo(memory);
+        row(0, home.getString(R.string.set_memory), home.getString(R.string.set_free_of,
+                Formatter.formatShortFileSize(home, memory.availMem),
+                Formatter.formatShortFileSize(home, memory.totalMem)), null, false, null);
+        try {
+            String version = home.getPackageManager().getPackageInfo(home.getPackageName(), 0).versionName;
+            row(0, home.getString(R.string.set_launcher_version), version, null, false, null);
+        } catch (PackageManager.NameNotFoundException ignored) {
+            // Always found: it is this app.
+        }
+        // The information rows can take focus too, so the page scrolls with the remote.
+        for (int i = 0; i < rows.getChildCount(); i++) rows.getChildAt(i).setFocusable(rows.getChildAt(i) instanceof LinearLayout);
+    }
+
+    /** The TV's IPv4 address on its active network, or a dash. */
+    private String ipAddress() {
+        ConnectivityManager cm = (ConnectivityManager) home.getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network network = cm == null ? null : cm.getActiveNetwork();
+        LinkProperties link = network == null ? null : cm.getLinkProperties(network);
+        if (link != null) {
+            for (LinkAddress address : link.getLinkAddresses()) {
+                if (address.getAddress() instanceof Inet4Address) return address.getAddress().getHostAddress();
+            }
+        }
+        return "–";
+    }
+
+    /** Ethernet or not, for the hub's summary of the network. */
+    static boolean ethernet(Context ctx) {
+        ConnectivityManager cm = (ConnectivityManager) ctx.getSystemService(Context.CONNECTIVITY_SERVICE);
+        Network network = cm == null ? null : cm.getActiveNetwork();
+        NetworkCapabilities caps = network == null ? null : cm.getNetworkCapabilities(network);
+        return caps != null && caps.hasTransport(NetworkCapabilities.TRANSPORT_ETHERNET);
+    }
+}

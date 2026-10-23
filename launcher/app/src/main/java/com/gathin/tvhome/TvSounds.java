@@ -31,6 +31,12 @@ final class TvSounds {
         select = pool.load(context, R.raw.tvos_select, 1);
     }
 
+    /** The Sound effects switch in the launcher's Settings: on loads the sounds, off silences them at once. */
+    static void setEnabled(Context context, boolean enabled) {
+        on = enabled;
+        if (enabled && pool == null) init(context);
+    }
+
     static boolean active() {
         return on && pool != null;
     }

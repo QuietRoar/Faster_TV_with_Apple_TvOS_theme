@@ -122,6 +122,12 @@ printf '%s\n' \
   "cmd package set-home-activity --user 0 com.gathin.tvhome/.MainActivity" \
   | "$PY" -I ../tools/tv.py --batch
 
+# tvos_style's Settings sheet changes the screensaver and sleep times and sound effects (WRITE_SETTINGS,
+# WRITE_SECURE_SETTINGS) and shows app sizes (usage access). Only allowed when the switch is on in config.xml.
+if grep -q '<bool name="tvos_style">true</bool>' app/src/main/res/values/config.xml; then
+  "$PY" -I ../tools/tv.py "appops set com.gathin.tvhome WRITE_SETTINGS allow; appops set com.gathin.tvhome GET_USAGE_STATS allow; pm grant com.gathin.tvhome android.permission.WRITE_SECURE_SETTINGS; pm grant com.gathin.tvhome android.permission.READ_EXTERNAL_STORAGE 2>/dev/null; echo tvos-settings-allowed"
+fi
+
 # Home's owner, or an empty string when the TV cannot be reached (pipefail would otherwise make a
 # lost connection abort the script with no explanation).
 query_home() {

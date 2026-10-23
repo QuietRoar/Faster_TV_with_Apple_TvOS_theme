@@ -305,6 +305,17 @@
                 android:clipToPadding="false"
                 android:orientation="horizontal">
 
+                <!-- tvos_style: pills for what is on (Wi-Fi, a Bluetooth device, the sleep timer), filled in code. -->
+                <LinearLayout
+                    android:id="@+id/statusPills"
+                    android:layout_width="wrap_content"
+                    android:layout_height="wrap_content"
+                    android:layout_gravity="center_vertical"
+                    android:orientation="horizontal"
+                    android:clipChildren="false"
+                    android:clipToPadding="false"
+                    android:visibility="gone" />
+
                 <!-- tvos_style: the header's only clock, beside the gear. Gone otherwise. -->
                 <TextClock
                     android:id="@+id/clockSmall"
@@ -364,6 +375,19 @@
                     style="@style/TopButton"
                     android:text="@string/settings"
                     android:drawableStart="@drawable/ic_settings"
+                    android:nextFocusDown="@+id/grid" />
+
+                <!-- tvos_style: the profile picture beside the Control Center button. Gone otherwise. -->
+                <ImageView
+                    android:id="@+id/btnProfile"
+                    android:layout_width="42dp"
+                    android:layout_height="42dp"
+                    android:layout_marginStart="10dp"
+                    android:scaleType="centerCrop"
+                    android:contentDescription="@string/cc_profile"
+                    android:focusable="true"
+                    android:clickable="true"
+                    android:visibility="gone"
                     android:nextFocusDown="@+id/grid" />
             </LinearLayout>
         </RelativeLayout>
