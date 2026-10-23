@@ -17,12 +17,12 @@ final class Controls {
     static final String POWER = "power", WIFI = "wifi", INPUTS = "inputs", BLUETOOTH = "bluetooth", SLEEP = "sleep",
             SOUND = "sound", APPS = "apps", ABOUT = "about", SETTINGS = "settings", ASSISTANT = "assistant",
             HOME_SETTINGS = "home_settings", REORDER = "reorder", GLOSS = "gloss", BOOST = "boost", THEMES = "themes",
-            WELCOME = "welcome";
+            WELCOME = "welcome", NIGHT = "night";
     /** Every control, in the order "More controls" lists them. */
-    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, SLEEP, BOOST, SOUND, APPS, ABOUT,
+    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, SLEEP, NIGHT, BOOST, SOUND, APPS, ABOUT,
             THEMES, WELCOME, SETTINGS, ASSISTANT, HOME_SETTINGS, REORDER, GLOSS);
-    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,sleep,boost,home_settings,settings,assistant,gloss";
-    private static final String DEFAULT_HOME = "wifi,bluetooth,sleep";
+    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,sleep,night,boost,home_settings,settings,assistant,gloss";
+    private static final String DEFAULT_HOME = "wifi,bluetooth,sleep,night";
     private static final String PREFS = "tvos", CC = "cc_items", HOME = "home_items";
 
     /** How a control is drawn in Control Center. */
@@ -41,7 +41,7 @@ final class Controls {
 
     /** On Home only while it is on (connected, playing to a speaker, counting down). */
     static boolean status(String key) {
-        return WIFI.equals(key) || BLUETOOTH.equals(key) || SLEEP.equals(key);
+        return WIFI.equals(key) || BLUETOOTH.equals(key) || SLEEP.equals(key) || NIGHT.equals(key);
     }
 
     /** The Gloss slider lives in Control Center only: a pill has nowhere to slide. */
@@ -63,6 +63,7 @@ final class Controls {
             case ASSISTANT: return R.drawable.ic_mic;
             case HOME_SETTINGS: return R.drawable.ic_tune;
             case REORDER: return R.drawable.ic_swap_vert;
+            case NIGHT: return R.drawable.ic_night;
             case BOOST: return R.drawable.ic_boost;
             case THEMES: return R.drawable.ic_themes;
             case WELCOME: return R.drawable.ic_wave;
@@ -84,6 +85,7 @@ final class Controls {
             case ASSISTANT: return R.string.cc_assistant;
             case HOME_SETTINGS: return R.string.cc_home_settings;
             case REORDER: return R.string.cc_reorder;
+            case NIGHT: return R.string.night_mode;
             case BOOST: return R.string.boost;
             case THEMES: return R.string.themes;
             case WELCOME: return R.string.welcome;
@@ -103,13 +105,38 @@ final class Controls {
         return keys;
     }
 
-    /** Control Center's controls, in order. */
+    /** Control Center's controls, in order. A control added in an update joins once, after the sleep timer. */
     static List<String> controlCenter(Context ctx) {
+        offerNight(ctx);
         return read(ctx, CC, DEFAULT_CC);
+    }
+
+    /** Night mode came in an update: it joins saved lists once, after the sleep timer, in each that exists. */
+    private static void offerNight(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        if (p.getBoolean("offered_night2", false)) return;
+        p.edit().putBoolean("offered_night2", true).apply();
+        if (p.contains(CC)) {
+            List<String> keys = read(ctx, CC, DEFAULT_CC);
+            if (!keys.contains(NIGHT)) {
+                int at = keys.indexOf(SLEEP);
+                keys.add(at < 0 ? keys.size() : at + 1, NIGHT);
+                save(ctx, CC, keys);
+            }
+        }
+        if (p.contains(HOME)) {
+            List<String> home = read(ctx, HOME, DEFAULT_HOME);
+            if (!home.contains(NIGHT)) {
+                int at = home.indexOf(SLEEP);
+                home.add(at < 0 ? 0 : at + 1, NIGHT);
+                save(ctx, HOME, home);
+            }
+        }
     }
 
     /** The controls with a pill on Home, in order. Earlier builds kept hidden status pills in "status_hidden". */
     static List<String> home(Context ctx) {
+        offerNight(ctx);
         SharedPreferences p = prefs(ctx);
         if (!p.contains(HOME) && p.contains("status_hidden")) {
             List<String> keys = read(ctx, HOME, DEFAULT_HOME);

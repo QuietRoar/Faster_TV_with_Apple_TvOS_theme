@@ -40,6 +40,14 @@
             android:launchMode="singleInstance"
             android:theme="@style/Warning" />
 
+        <!-- Start (minutes) or cancel (0) the timer with no screen: the launcher's Night mode. -->
+        <activity
+            android:name=".StartActivity"
+            android:exported="true"
+            android:excludeFromRecents="true"
+            android:noHistory="true"
+            android:theme="@android:style/Theme.NoDisplay" />
+
         <!-- When the timer ends, read only, for the launcher's status pill beside its clock. -->
         <provider
             android:name=".StateProvider"

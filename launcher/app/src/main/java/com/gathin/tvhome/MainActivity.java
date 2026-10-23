@@ -410,7 +410,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Before the wallpaper decodes: tvos_style's glass needs the backdrop the player makes from it.
         LiquidGlass.enabled = cfg.topMenu && getResources().getBoolean(R.bool.tvos_style);
         LiquidGlass.gloss = getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).getInt("gloss", 60) / 100f;
-        if (LiquidGlass.enabled) TvSounds.init(this);
+        if (LiquidGlass.enabled && !Comfort.lite(this) && !Comfort.nightMode(this)) TvSounds.init(this);
         wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
         // tvos_style: the focused top-row app's own picture over the wallpaper, when the theme brought any.
         File themeDir = Config.dir(this);
@@ -551,6 +551,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
         }
         AppAdapter.tilt = LiquidGlass.enabled;
+        AppAdapter.motion = !Comfort.lite(this);
         adapter = new AppAdapter(this, this, COLUMNS, cfg);
         dockApps = cfg.dockApps;
         fillDockLeavesSlots = !cfg.fillDock;
@@ -724,6 +725,26 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             IntentFilter wake = new IntentFilter(Intent.ACTION_SCREEN_ON);
             wake.addAction(Intent.ACTION_DREAMING_STOPPED);
             registerReceiver(welcomeReceiver, wake);
+            // Standby: clear background apps then, if asked, so the TV wakes up fresh. Only at that moment.
+            standbyReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    if (Comfort.clearOnStandby(MainActivity.this)) {
+                        new Thread(() -> Boost.clear(MainActivity.this), "clear-on-standby").start();
+                    }
+                }
+            };
+            registerReceiver(standbyReceiver, new IntentFilter(Intent.ACTION_SCREEN_OFF));
+            // Once a minute: the widget clock's ring, and the night clock's hours.
+            minuteReceiver = new BroadcastReceiver() {
+                @Override public void onReceive(Context context, Intent intent) {
+                    if (clockCard != null) clockCard.invalidate();
+                    updateNight();
+                }
+            };
+            IntentFilter tick = new IntentFilter(Intent.ACTION_TIME_TICK);
+            tick.addAction(Intent.ACTION_TIME_CHANGED);
+            tick.addAction(Intent.ACTION_TIMEZONE_CHANGED);
+            registerReceiver(minuteReceiver, tick);
             // The start banner only when Home comes up with the TV, not when it restarts later (an update, a theme).
             if (android.os.SystemClock.elapsedRealtime() < 5 * 60_000) root.postDelayed(() -> showWelcome(Welcome.START, false), 900);
             applyClock();
@@ -741,6 +762,14 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             // A painted theme comes up with Home's first frame, from the copy saved when it was last painted, so the
             // slideshow under it never shows first; it is painted again only when the theme or its choices change.
             Themes.Theme startTheme = Themes.current(this);
+            // Night: a dimmer over the background (night clock hours, Night mode), and the big night clock.
+            nightDim = new View(this);
+            nightDim.setBackgroundColor(0x80000000);
+            nightDim.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            nightDim.setVisibility(View.GONE);
+            root.addView(nightDim, under + 1, new FrameLayout.LayoutParams(
+                    ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            root.post(this::updateNight);
             if (!startTheme.photos()) {
                 Bitmap saved = savedTheme(startTheme);
                 if (saved != null) {
@@ -1232,6 +1261,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         unregisterReceiver(packageReceiver);
         if (statusReceiver != null) unregisterReceiver(statusReceiver);
         if (welcomeReceiver != null) unregisterReceiver(welcomeReceiver);
+        if (standbyReceiver != null) unregisterReceiver(standbyReceiver);
+        if (minuteReceiver != null) unregisterReceiver(minuteReceiver);
         wallpaperPlayer.close();
         ConnectivityManager cm = getSystemService(ConnectivityManager.class);
         TvInputManager tim = (TvInputManager) getSystemService(TV_INPUT_SERVICE);
@@ -1687,7 +1718,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         View item = (View) card.getParent();
         if (frost != null) {
             float target = dockRow && position < COLUMNS ? 0f : 1f;
-            if (frost.getAlpha() != target) frost.animate().alpha(target).setDuration(reducedMotion ? Motion.REDUCED_MS : 380).start();
+            if (frost.getAlpha() != target) {
+                frost.animate().alpha(target).setDuration(reducedMotion || !AppAdapter.motion ? 0 : 380).start();
+            }
             if (frostOn != (target > 0f)) {
                 frostOn = target > 0f;
                 updateHeaderContrast();
@@ -3280,6 +3313,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             long minutes = sleepMinutesLeft();
             active = minutes > 0;
             if (active) status = getString(R.string.status_sleep, (int) minutes);
+        } else if (Controls.NIGHT.equals(key)) {
+            active = Comfort.nightMode(this);
+            if (active) {
+                long minutes = sleepMinutesLeft();
+                status = minutes > 0 ? getString(R.string.status_sleep, (int) minutes) : getString(R.string.bt_on);
+            }
         } else if (Controls.BOOST.equals(key)) {
             ActivityManager.MemoryInfo memory = new ActivityManager.MemoryInfo();
             ((ActivityManager) getSystemService(ACTIVITY_SERVICE)).getMemoryInfo(memory);
@@ -3311,7 +3350,15 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         switch (key) {
             case Controls.POWER: {
                 Intent sleepNow = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".SleepNowActivity");
-                open(sleepNow.resolveActivity(getPackageManager()) != null ? sleepNow : systemIntent(Settings.ACTION_SETTINGS));
+                if (sleepNow.resolveActivity(getPackageManager()) == null) {
+                    open(systemIntent(Settings.ACTION_SETTINGS));
+                } else if (TvSounds.active() && TvSounds.goodbyeOn(this)) {
+                    // The goodbye chime first; sleeping cuts the sound off.
+                    TvSounds.goodbye(this, false);
+                    root.postDelayed(() -> open(sleepNow), 1300);
+                } else {
+                    open(sleepNow);
+                }
                 break;
             }
             case Controls.WIFI: showSettingsSheet(SettingsSheet.WIFI, true); break;
@@ -3332,6 +3379,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 break;
             case Controls.THEMES: showSettingsSheet(SettingsSheet.THEMES, true); break;
             case Controls.WELCOME: showSettingsSheet(SettingsSheet.WELCOME, true); break;
+            case Controls.NIGHT: toggleNightMode(); break;
             default: break;
         }
     }
@@ -3589,6 +3637,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         headerLight = light;
         TextView clock = findViewById(R.id.clockSmall);
         clock.setTextColor(light ? 0xE6141416 : 0xD9FFFFFF);
+        if (clockCard != null) clockCard.setColours(Themes.accent(this), light);
         if (light) clock.setShadowLayer(8 * density, 0, 0, 0x73FFFFFF);
         else clock.setShadowLayer(10 * density, 0, density, 0x8C000000);
         ColorStateList ink = new ColorStateList(new int[][]{{android.R.attr.state_focused}, {}},
@@ -3647,6 +3696,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 long minutes = sleepMinutesLeft();
                 if (minutes <= 0) continue;
                 label = getString(R.string.status_sleep, (int) minutes);
+            } else if (Controls.NIGHT.equals(key)) {
+                if (!Comfort.nightMode(this)) continue;
             }
             want.add(new Object[]{key, icon, label});
         }
@@ -3794,7 +3845,81 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return states;
     }
 
+    // ---- night: the night clock, Night mode, and Lite mode --------------------------------------------------
+
+    private View nightDim;
+    private TextClock nightClock;
+    private BroadcastReceiver standbyReceiver, minuteReceiver;
+
+    /**
+     * Within the night clock's hours a big, dim clock fills the empty top of Home and the background darkens;
+     * Night mode darkens it too. Checked once a minute and when the choices change.
+     */
+    void updateNight() {
+        if (nightDim == null) return;
+        boolean clock = Comfort.nightClock(this) && Comfort.isNightHours(this);
+        boolean dim = clock || Comfort.nightMode(this);
+        nightDim.setVisibility(dim ? View.VISIBLE : View.GONE);
+        if (clock && nightClock == null) {
+            nightClock = new TextClock(this);
+            nightClock.setFormat12Hour("h:mm");
+            nightClock.setFormat24Hour("HH:mm");
+            nightClock.setTextSize(TypedValue.COMPLEX_UNIT_SP, 120);
+            nightClock.setTypeface(UiFont.get(this, R.string.font_extralight));
+            nightClock.setTextColor(0x8CFFFFFF);
+            nightClock.setIncludeFontPadding(false);
+            nightClock.setImportantForAccessibility(View.IMPORTANT_FOR_ACCESSIBILITY_NO);
+            FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START);
+            lp.setMargins((int) (56 * density), (int) (110 * density), 0, 0);
+            root.addView(nightClock, root.indexOfChild(nightDim) + 1, lp);
+        } else if (!clock && nightClock != null) {
+            root.removeView(nightClock);
+            nightClock = null;
+        }
+    }
+
+    /**
+     * One-tap Night mode: the volume to half, the background dimmed, the click sounds off and a sleep timer for an
+     * hour (with the sleep-timer add-on). Tapping again puts the volume, the sounds and the timer back.
+     */
+    void toggleNightMode() {
+        android.media.AudioManager audio = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
+        int stream = android.media.AudioManager.STREAM_MUSIC;
+        Intent timer = new Intent().setClassName(SLEEP_TIMER, SLEEP_TIMER + ".StartActivity");
+        boolean hasTimer = timer.resolveActivity(getPackageManager()) != null;
+        if (!Comfort.nightMode(this)) {
+            int now = audio.getStreamVolume(stream);
+            Comfort.setNightMode(this, true, now);
+            audio.setStreamVolume(stream, Math.max(1, Math.round(now * Comfort.NIGHT_VOLUME)), 0);
+            if (hasTimer) open(timer.putExtra("minutes", Comfort.NIGHT_TIMER_MINUTES));
+            TvSounds.setEnabled(this, false);
+            Toast.makeText(this, getString(hasTimer ? R.string.night_on : R.string.night_on_no_timer,
+                    Comfort.NIGHT_TIMER_MINUTES), Toast.LENGTH_LONG).show();
+        } else {
+            int before = Comfort.nightPreviousVolume(this);
+            Comfort.setNightMode(this, false, 0);
+            if (before >= 0) audio.setStreamVolume(stream, before, 0);
+            if (hasTimer) open(timer.putExtra("minutes", 0));
+            boolean effects = Settings.System.getInt(getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+            if (!Comfort.lite(this)) TvSounds.setEnabled(this, effects);
+            Toast.makeText(this, R.string.night_off, Toast.LENGTH_SHORT).show();
+        }
+        updateNight();
+        // The timer's state comes from the add-on a moment later.
+        root.postDelayed(this::refreshHomePills, 600);
+    }
+
+    /** Lite mode: no tilt, light sweep, launch zoom, fades or sounds; Home rebuilds with it at once. */
+    void setLite(boolean on) {
+        Comfort.setLite(this, on);
+        if (on) TvSounds.setEnabled(this, false);
+        recreate();
+    }
+
     // ---- the clock -----------------------------------------------------------------------------------------
+
+    private ClockCard clockCard;
 
     /** The header clock's style and place (Settings, Clock). */
     void applyClock() {
@@ -3810,6 +3935,24 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         lp.setMarginEnd(Clock.place(this) == Clock.RIGHT ? (int) (2 * density) : (int) (16 * density));
         clock.setLayoutParams(lp);
         int style = Clock.style(this);
+        // The widget card stands in the clock's place; the plain clock hides while it shows.
+        if (clockCard != null) bar.removeView(clockCard);
+        if (style == Clock.WIDGET) {
+            if (clockCard == null) {
+                clockCard = new ClockCard(this);
+                clockCard.setBackground(new LiquidGlass.Background(clockCard, 18 * density, 0x1FFFFFFF, false));
+                clockCard.setFocusable(false);
+            }
+            LinearLayout.LayoutParams cl = new LinearLayout.LayoutParams(ViewGroup.LayoutParams.WRAP_CONTENT,
+                    ViewGroup.LayoutParams.WRAP_CONTENT);
+            cl.gravity = Gravity.CENTER_VERTICAL;
+            cl.setMarginStart((int) (12 * density));
+            cl.setMarginEnd((int) (10 * density));
+            bar.addView(clockCard, bar.indexOfChild(clock), cl);
+            clock.setVisibility(View.GONE);
+        } else {
+            clock.setVisibility(View.VISIBLE);
+        }
         clock.setFormat12Hour(style == Clock.WITH_DATE ? "h:mm  \u00B7  EEE d MMM" : "h:mm");
         clock.setFormat24Hour(style == Clock.WITH_DATE ? "HH:mm  \u00B7  EEE d MMM" : "HH:mm");
         clock.setTextSize(TypedValue.COMPLEX_UNIT_SP, style == Clock.LARGE ? 30 : style == Clock.WITH_DATE ? 18 : 20);
@@ -3957,11 +4100,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         lp.setMargins((int) (56 * density), (int) (30 * density), 0, 0);
         welcomeBanner = card;
         root.addView(card, lp);
+        TvSounds.welcome(this, false);
         card.setAlpha(0f);
         card.setTranslationY(-14 * density);
         card.animate().alpha(1f).translationY(0f).setDuration(reducedMotion ? Motion.REDUCED_MS : 520)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
-        if (!reducedMotion) {
+        if (!reducedMotion && AppAdapter.motion) {
             emoji.post(() -> {
                 android.animation.ObjectAnimator move;
                 if ("wave".equals(Welcome.EMOJI[emojiIndex])) {

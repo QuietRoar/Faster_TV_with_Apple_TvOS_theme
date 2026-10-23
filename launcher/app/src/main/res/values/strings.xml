@@ -363,4 +363,34 @@
     <string name="clock_large">Large</string>
     <string name="clock_right">Beside the profile picture</string>
     <string name="clock_left">Left of the symbols</string>
+    <!-- Lite mode, the widget and night clocks, Night mode and clearing on standby (tvos_style). -->
+    <string name="clock_widget">Widget card</string>
+    <string name="lite_mode">Lite mode</string>
+    <string name="night_mode">Night mode</string>
+    <string name="night_on">Night mode on: volume halved, sleep in %1$d min</string>
+    <string name="night_on_no_timer">Night mode on: volume halved</string>
+    <string name="night_off">Night mode off: volume back</string>
+    <string name="night_clock">Night clock</string>
+    <string name="night_from">From</string>
+    <string name="night_until">Until</string>
+    <string name="boost_standby">Clear when the TV sleeps</string>
+    <!-- Interface sounds (tvos_style). -->
+    <string name="snd_title">Sounds</string>
+    <string name="snd_pack">Sound pack</string>
+    <string name="snd_volume">Volume</string>
+    <string name="snd_back">Sound on Back</string>
+    <string name="snd_soft">Soft</string>
+    <string name="snd_normal">Normal</string>
+    <string name="snd_loud">Loud</string>
+    <string name="snd_glass">Glass</string>
+    <string name="snd_pop">Pop</string>
+    <string name="snd_wood">Wood</string>
+    <string name="snd_chime">Chime</string>
+    <string name="snd_crystal">Crystal</string>
+    <string name="snd_click">Click</string>
+    <string name="snd_off_hint">Sounds are off now (Sound effects in Picture &amp; sound, Lite mode or Night mode). You can still preview them here.</string>
+    <string name="snd_greetings">Welcome and goodbye</string>
+    <string name="snd_welcome">Welcome sound</string>
+    <string name="snd_goodbye">Goodbye sound</string>
+    <string name="snd_goodbye_hint">Goodbye plays with Power off</string>
 </resources>

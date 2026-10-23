@@ -71,8 +71,8 @@ import java.util.concurrent.Executors;
 final class SettingsSheet {
     static final String HUB = "hub", WIFI = "wifi", SOUND = "sound", APPS = "apps", ABOUT = "about",
             CONTROLS = "controls", ACCOUNT = "account", MEMORY = "memory", THEMES = "themes", WELCOME = "welcome",
-            VOLUME = "volume", CLOCK = "clock";
-    private static final String THEME = "theme:", BANNER = "banner:";
+            VOLUME = "volume", CLOCK = "clock", SOUNDS = "sounds";
+    private static final String THEME = "theme:", BANNER = "banner:", PICK = "pick:";
     private static final String CONTROL = "control:";
     private static final String PASSWORD = "password:", NETWORK = "network:", APP = "app:";
     /** Screensaver start (Settings.System.SCREEN_OFF_TIMEOUT) and sleep (Settings.Secure.SLEEP_TIMEOUT), in ms. */
@@ -210,6 +210,11 @@ final class SettingsSheet {
     /** Up a page, with focus on the row that led to the one being left. */
     private void back() {
         String from = stack.pop();
+        if (from.startsWith(PICK)) {
+            pickers.remove(from.substring(PICK.length()));
+            render(from.substring(PICK.length()));
+            return;
+        }
         render(from.startsWith(PASSWORD) ? "net:" + from.substring(PASSWORD.length()) : from);
     }
 
@@ -243,7 +248,9 @@ final class SettingsSheet {
         else if (WELCOME.equals(page)) welcomePage();
         else if (VOLUME.equals(page)) volumePage();
         else if (CLOCK.equals(page)) clockPage();
+        else if (SOUNDS.equals(page)) soundsPage();
         else if (page.startsWith(THEME)) themePage(page.substring(THEME.length()));
+        else if (page.startsWith(PICK)) pickPage(page.substring(PICK.length()));
         else if (page.startsWith(BANNER)) bannerPage(page.substring(BANNER.length()));
         else if (page.startsWith(CONTROL)) controlPage(page.substring(CONTROL.length()));
         else if (page.startsWith(PASSWORD)) passwordPage(page.substring(PASSWORD.length()));
@@ -345,6 +352,20 @@ final class SettingsSheet {
                 VOLUME, true, () -> push(VOLUME));
         row(R.drawable.ic_clock, home.getString(R.string.clock), home.getString(Clock.STYLE_NAMES[Clock.style(home)]), CLOCK, true,
                 () -> push(CLOCK));
+        row(R.drawable.ic_volume, home.getString(R.string.snd_title), home.getString(TvSounds.PACK_NAMES[TvSounds.pack(home)]),
+                SOUNDS, true, () -> push(SOUNDS));
+        View night = row(R.drawable.ic_night, home.getString(R.string.night_mode),
+                home.getString(Comfort.nightMode(home) ? R.string.bt_on : R.string.bt_off), "night", false, () -> {
+                    home.toggleNightMode();
+                    render("night");
+                });
+        stepper(night, night::performClick, night::performClick);
+        View lite = row(R.drawable.ic_boost, home.getString(R.string.lite_mode),
+                home.getString(Comfort.lite(home) ? R.string.bt_on : R.string.bt_off), "lite", false, () -> {
+                    dismiss();
+                    home.setLite(!Comfort.lite(home));
+                });
+        stepper(lite, lite::performClick, lite::performClick);
         row(R.drawable.ic_boost, home.getString(R.string.boost), null, MEMORY, true, () -> {
             boostRequested = true;
             push(MEMORY);
@@ -420,6 +441,12 @@ final class SettingsSheet {
             boostRequested = true;
             render("again");
         });
+        View standby = row(R.drawable.ic_night, home.getString(R.string.boost_standby),
+                home.getString(Comfort.clearOnStandby(home) ? R.string.bt_on : R.string.bt_off), "standby", false, () -> {
+                    Comfort.setClearOnStandby(home, !Comfort.clearOnStandby(home));
+                    render("standby");
+                });
+        stepper(standby, standby::performClick, standby::performClick);
     }
 
     // ---- Themes -------------------------------------------------------------------------------------------
@@ -544,22 +571,82 @@ final class SettingsSheet {
         void chose(int index);
     }
 
-    /** A row that steps through named choices: OK or Right for the next, Left for the previous. */
+    /** A row with named choices: OK lists them all to pick from; Left and Right step through them in place. */
     private View cycleRow(int icon, int name, int[] names, int current, String tag, Choose choose) {
-        int[] index = {Math.max(0, Math.min(names.length - 1, current))};
-        View row = row(icon, home.getString(name), home.getString(names[index[0]]), tag, false, null);
+        String[] labels = new String[names.length];
+        for (int i = 0; i < names.length; i++) labels[i] = home.getString(names[i]);
+        return listRow(icon, home.getString(name), labels, null, current, tag, choose, null);
+    }
+
+    /** A choice being picked from its list page: title, labels, optional icons, current, and what to do. */
+    private static final class Picker {
+        String title;
+        String[] labels;
+        int[] icons;
+        int current;
+        Choose choose, preview;
+    }
+
+    private final Map<String, Picker> pickers = new HashMap<>();
+
+    /**
+     * The row for a setting with several choices. OK opens a page listing every choice, the current one ticked;
+     * OK on one picks it and comes back. Left and Right still step through them on the row. preview, when given,
+     * runs as each choice in the list takes focus (a sound pack plays its sound).
+     */
+    private View listRow(int icon, String name, String[] labels, int[] icons, int current, String tag, Choose choose,
+                         Choose preview) {
+        int[] index = {Math.max(0, Math.min(labels.length - 1, current))};
+        View row = row(icon, name, labels[index[0]], tag, true, null);
+        row.setOnClickListener(v -> {
+            Picker p = new Picker();
+            p.title = name;
+            p.labels = labels;
+            p.icons = icons;
+            p.current = index[0];
+            p.choose = choose;
+            p.preview = preview;
+            pickers.put(tag, p);
+            stack.push(PICK + tag);
+            render("opt:" + index[0]);
+        });
         Runnable[] step = new Runnable[2];
         for (int d = 0; d < 2; d++) {
             int delta = d == 0 ? -1 : 1;
             step[d] = () -> {
-                index[0] = (index[0] + delta + names.length) % names.length;
-                ((TextView) row.findViewById(R.id.value)).setText(names[index[0]]);
+                index[0] = (index[0] + delta + labels.length) % labels.length;
+                ((TextView) row.findViewById(R.id.value)).setText(labels[index[0]]);
                 choose.chose(index[0]);
             };
         }
-        row.setOnClickListener(v -> step[1].run());
         stepper(row, step[0], step[1]);
         return row;
+    }
+
+    /** Every choice of one setting; the current one is ticked. */
+    private void pickPage(String tag) {
+        Picker p = pickers.get(tag);
+        if (p == null) {   // the sheet was rebuilt: nothing to pick from any more
+            stack.pop();
+            render(tag);
+            return;
+        }
+        title.setText(p.title);
+        for (int i = 0; i < p.labels.length; i++) {
+            int choice = i;
+            View row = row(p.icons != null ? p.icons[i] : (i == p.current ? R.drawable.ic_check : R.drawable.ic_blank),
+                    p.labels[i], i == p.current && p.icons != null ? home.getString(R.string.theme_current) : null,
+                    "opt:" + i, false, () -> {
+                        p.choose.chose(choice);
+                        back();
+                    });
+            if (p.icons != null) ((ImageView) row.findViewById(R.id.icon)).setImageTintList((ColorStateList) null);
+            if (p.preview != null) {
+                row.setOnFocusChangeListener((v, focused) -> {
+                    if (focused) p.preview.chose(choice);
+                });
+            }
+        }
     }
 
     // ---- Welcome ------------------------------------------------------------------------------------------
@@ -588,31 +675,24 @@ final class SettingsSheet {
                     render("on");
                 });
         stepper(toggle, toggle::performClick, toggle::performClick);
-        View emoji = cycleRow(0, R.string.welcome_emoji, Welcome.EMOJI_NAMES, Welcome.emoji(home, when), "emoji", i -> {
-            Welcome.setEmoji(home, when, i);
-            ((ImageView) rows.findViewWithTag("emoji").findViewById(R.id.icon)).setImageResource(Welcome.EMOJI_RES[i]);
-        });
+        String[] emojiNames = new String[Welcome.EMOJI_NAMES.length];
+        for (int i = 0; i < emojiNames.length; i++) emojiNames[i] = home.getString(Welcome.EMOJI_NAMES[i]);
+        View emoji = listRow(0, home.getString(R.string.welcome_emoji), emojiNames, Welcome.EMOJI_RES,
+                Welcome.emoji(home, when), "emoji", i -> {
+                    Welcome.setEmoji(home, when, i);
+                    View r = rows.findViewWithTag("emoji");
+                    if (r != null) ((ImageView) r.findViewById(R.id.icon)).setImageResource(Welcome.EMOJI_RES[i]);
+                }, null);
         ImageView icon = emoji.findViewById(R.id.icon);
         icon.setVisibility(View.VISIBLE);
         icon.setImageResource(Welcome.EMOJI_RES[Welcome.emoji(home, when)]);
         icon.setImageTintList((ColorStateList) null);
-        int[] secondNames = new int[Welcome.SECONDS.length];
-        for (int i = 0; i < secondNames.length; i++) secondNames[i] = R.string.vol_seconds_value;
-        View seconds = row(R.drawable.ic_clock, home.getString(R.string.welcome_seconds),
-                home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[Welcome.seconds(home, when)])), "seconds", false, null);
-        int[] index = {Welcome.seconds(home, when)};
-        Runnable[] step = new Runnable[2];
-        for (int d = 0; d < 2; d++) {
-            int delta = d == 0 ? -1 : 1;
-            step[d] = () -> {
-                index[0] = (index[0] + delta + Welcome.SECONDS.length) % Welcome.SECONDS.length;
-                Welcome.setSeconds(home, when, index[0]);
-                ((TextView) seconds.findViewById(R.id.value)).setText(
-                        home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[index[0]])));
-            };
+        String[] secondLabels = new String[Welcome.SECONDS.length];
+        for (int i = 0; i < secondLabels.length; i++) {
+            secondLabels[i] = home.getString(R.string.vol_seconds_value, String.valueOf(Welcome.SECONDS[i]));
         }
-        seconds.setOnClickListener(v -> step[1].run());
-        stepper(seconds, step[0], step[1]);
+        listRow(R.drawable.ic_clock, home.getString(R.string.welcome_seconds), secondLabels, null,
+                Welcome.seconds(home, when), "seconds", i -> Welcome.setSeconds(home, when, i), null);
         header(home.getString(R.string.welcome_title));
         textField(Welcome.title(home, when), R.string.welcome_title, "title", text -> Welcome.setTitle(home, when, text));
         header(home.getString(R.string.welcome_message));
@@ -687,6 +767,51 @@ final class SettingsSheet {
         row(R.drawable.ic_info, home.getString(R.string.vol_hint), null, "hint", false, null);
     }
 
+    // ---- Sounds -------------------------------------------------------------------------------------------
+
+    /** The interface sounds: the pack (each plays as you move through the list), volume, and the Back sound. */
+    private void soundsPage() {
+        title.setText(R.string.snd_title);
+        String[] packs = new String[TvSounds.PACKS.length];
+        for (int i = 0; i < packs.length; i++) packs[i] = home.getString(TvSounds.PACK_NAMES[i]);
+        listRow(R.drawable.ic_volume, home.getString(R.string.snd_pack), packs, null, TvSounds.pack(home), "pack",
+                i -> TvSounds.choose(home, i, TvSounds.volume(home), TvSounds.backSound(home)),
+                i -> home.homeRoot().postDelayed(() -> TvSounds.preview(home, i, TvSounds.volume(home)), 120));
+        String[] volumes = new String[TvSounds.VOLUMES.length];
+        for (int i = 0; i < volumes.length; i++) volumes[i] = home.getString(TvSounds.VOLUME_NAMES[i]);
+        listRow(R.drawable.ic_gloss, home.getString(R.string.snd_volume), volumes, null, TvSounds.volume(home), "volume",
+                i -> TvSounds.choose(home, TvSounds.pack(home), i, TvSounds.backSound(home)),
+                i -> home.homeRoot().postDelayed(() -> TvSounds.preview(home, TvSounds.pack(home), i), 120));
+        View back = row(R.drawable.ic_swap_vert, home.getString(R.string.snd_back),
+                home.getString(TvSounds.backSound(home) ? R.string.bt_on : R.string.bt_off), "back", false, () -> {
+                    TvSounds.choose(home, TvSounds.pack(home), TvSounds.volume(home), !TvSounds.backSound(home));
+                    render("back");
+                });
+        stepper(back, back::performClick, back::performClick);
+        header(home.getString(R.string.snd_greetings));
+        View welcome = row(R.drawable.ic_wave, home.getString(R.string.snd_welcome),
+                home.getString(TvSounds.welcomeOn(home) ? R.string.bt_on : R.string.bt_off), "welcome", false, () -> {
+                    boolean on = !TvSounds.welcomeOn(home);
+                    TvSounds.setGreetings(home, on, TvSounds.goodbyeOn(home));
+                    if (on) TvSounds.welcome(home, true);
+                    render("welcome");
+                });
+        stepper(welcome, welcome::performClick, welcome::performClick);
+        View goodbye = row(R.drawable.ic_power, home.getString(R.string.snd_goodbye),
+                home.getString(TvSounds.goodbyeOn(home) ? R.string.bt_on : R.string.bt_off), "goodbye", false, () -> {
+                    boolean on = !TvSounds.goodbyeOn(home);
+                    TvSounds.setGreetings(home, TvSounds.welcomeOn(home), on);
+                    if (on) TvSounds.goodbye(home, true);
+                    render("goodbye");
+                });
+        stepper(goodbye, goodbye::performClick, goodbye::performClick);
+        row(R.drawable.ic_info, home.getString(R.string.snd_goodbye_hint), null, "goodbyehint", false, null);
+        boolean effects = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+        if (!effects || Comfort.lite(home) || Comfort.nightMode(home)) {
+            row(R.drawable.ic_info, home.getString(R.string.snd_off_hint), null, "hint", false, null);
+        }
+    }
+
     // ---- Clock --------------------------------------------------------------------------------------------
 
     private void clockPage() {
@@ -699,6 +824,36 @@ final class SettingsSheet {
             Clock.setPlace(home, i);
             home.applyClock();
         });
+        header(home.getString(R.string.night_clock));
+        View on = row(R.drawable.ic_night, home.getString(R.string.night_clock),
+                home.getString(Comfort.nightClock(home) ? R.string.bt_on : R.string.bt_off), "nightclock", false, () -> {
+                    Comfort.setNightClock(home, !Comfort.nightClock(home), Comfort.nightFrom(home), Comfort.nightUntil(home));
+                    home.updateNight();
+                    render("nightclock");
+                });
+        stepper(on, on::performClick, on::performClick);
+        hourRow(R.string.night_from, "from", Comfort.nightFrom(home), h -> {
+            Comfort.setNightClock(home, Comfort.nightClock(home), h, Comfort.nightUntil(home));
+            home.updateNight();
+        });
+        hourRow(R.string.night_until, "until", Comfort.nightUntil(home), h -> {
+            Comfort.setNightClock(home, Comfort.nightClock(home), Comfort.nightFrom(home), h);
+            home.updateNight();
+        });
+    }
+
+    /** A row that steps through the hours of the day, shown as times (23:00 or 11 pm). */
+    private void hourRow(int name, String tag, int hour, Choose choose) {
+        String[] hours = new String[24];
+        for (int h = 0; h < 24; h++) hours[h] = hourText(h);
+        listRow(R.drawable.ic_clock, home.getString(name), hours, null, hour, tag, choose, null);
+    }
+
+    private String hourText(int hour) {
+        java.util.Calendar c = java.util.Calendar.getInstance();
+        c.set(java.util.Calendar.HOUR_OF_DAY, hour);
+        c.set(java.util.Calendar.MINUTE, 0);
+        return android.text.format.DateFormat.getTimeFormat(home).format(c.getTime());
     }
 
     interface Edit {
@@ -1102,24 +1257,15 @@ final class SettingsSheet {
 
     /** A row that steps through times: OK or Right for the next, Left for the previous. */
     private void choiceRow(int icon, int name, String tag, int[] choices, int current, Apply apply) {
-        int[] index = {0};
-        for (int i = 0; i < choices.length; i++) if (choices[i] == current) index[0] = i;
-        View row = row(icon, home.getString(name), duration(choices[index[0]]), tag, false, null);
-        Runnable[] step = new Runnable[2];
-        for (int d = 0; d < 2; d++) {
-            int delta = d == 0 ? -1 : 1;
-            step[d] = () -> {
-                int next = (index[0] + delta + choices.length) % choices.length;
-                if (!apply.set(choices[next])) {
-                    Toast.makeText(home, R.string.set_no_permission, Toast.LENGTH_LONG).show();
-                    return;
-                }
-                index[0] = next;
-                ((TextView) row.findViewById(R.id.value)).setText(duration(choices[next]));
-            };
+        int at = 0;
+        String[] labels = new String[choices.length];
+        for (int i = 0; i < choices.length; i++) {
+            labels[i] = duration(choices[i]);
+            if (choices[i] == current) at = i;
         }
-        row.setOnClickListener(v -> step[1].run());
-        stepper(row, step[0], step[1]);
+        listRow(icon, home.getString(name), labels, null, at, tag, i -> {
+            if (!apply.set(choices[i])) Toast.makeText(home, R.string.set_no_permission, Toast.LENGTH_LONG).show();
+        }, null);
     }
 
     private String duration(int ms) {
