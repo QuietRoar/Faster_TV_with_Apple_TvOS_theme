@@ -2,4 +2,5 @@
 <resources>
     <!-- tvos_style: a tile's reorder-mode wobble animator, kept on the card. -->
     <item name="jiggle" type="id" />
+    <item name="press_scale" type="id" />
 </resources>

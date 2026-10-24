@@ -27,6 +27,8 @@ final class IconGloss extends Drawable {
     private final Paint sheen = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint rim = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Paint band = new Paint(Paint.ANTI_ALIAS_FLAG);
+    /** A hairline at 10% white, kept even with the gloss off, so a dark banner's edge never melts into the sky. */
+    private final Paint edge = new Paint(Paint.ANTI_ALIAS_FLAG);
     private final Matrix unit = new Matrix();
     private final Matrix bandMatrix = new Matrix();
     private final RectF rect = new RectF();
@@ -41,6 +43,8 @@ final class IconGloss extends Drawable {
     private ValueAnimator sweepAnimator;
     /** Where the band of light is, 0 to 1 across the icon; negative while it rests. */
     private float sweep = -1f;
+    /** The band runs right to left when the focus came from the right. */
+    private boolean leftward;
 
     IconGloss(float density) {
         this.density = density;
@@ -49,11 +53,15 @@ final class IconGloss extends Drawable {
         rim.setStrokeWidth(1.2f * density);
         rim.setShader(rimShader);
         band.setShader(bandShader);
+        edge.setStyle(Paint.Style.STROKE);
+        edge.setStrokeWidth(density);
+        edge.setColor(0x1AFFFFFF);
     }
 
     /** Sends the band of light across once; reduced motion skips it. */
-    void sweep() {
+    void sweep(boolean fromRight) {
         if (sweepAnimator != null) sweepAnimator.cancel();
+        leftward = fromRight;
         sweepAnimator = ValueAnimator.ofFloat(0f, 1f).setDuration(700);
         sweepAnimator.setStartDelay(140);
         sweepAnimator.setInterpolator(new AccelerateDecelerateInterpolator());
@@ -74,12 +82,14 @@ final class IconGloss extends Drawable {
         Rect b = getBounds();
         if (b.isEmpty()) return;
         rect.set(b);
+        float radius = AppAdapter.cornerRadius(b.width(), density);
+        float e = density / 2f;
+        canvas.drawRoundRect(rect.left + e, rect.top + e, rect.right - e, rect.bottom - e, radius - e, radius - e, edge);
         int alpha = Math.round(LiquidGlass.gloss * 255);
         if (alpha == 0) return;
         sheen.setAlpha(alpha);
         rim.setAlpha(alpha);
         band.setAlpha(alpha);
-        float radius = AppAdapter.cornerRadius(b.width(), density);
         unit.setScale(1f, rect.height());
         unit.postTranslate(0f, rect.top);
         sheenShader.setLocalMatrix(unit);
@@ -89,7 +99,7 @@ final class IconGloss extends Drawable {
             float w = rect.width() * 0.45f;
             bandMatrix.setScale(w, 1f);
             bandMatrix.postSkew(-0.4f, 0f);
-            bandMatrix.postTranslate(rect.left - w * 1.5f + (rect.width() + w * 2f) * sweep, 0f);
+            bandMatrix.postTranslate(rect.left - w * 1.5f + (rect.width() + w * 2f) * (leftward ? 1f - sweep : sweep), 0f);
             bandShader.setLocalMatrix(bandMatrix);
             canvas.drawRoundRect(rect, radius, radius, band);
         }

@@ -718,9 +718,12 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         return Color.HSVToColor(hsv);
     }
 
-    /** Corner radius for a tile of this width: 16dp at the design width, proportionally less when smaller. */
+    /** tvos_style: the theme's tile corners at the design width (Themes.tileRadiusDp); 16dp otherwise. */
+    static float tileRadiusDp = 16f;
+
+    /** Corner radius for a tile of this width: tileRadiusDp at the design width, proportionally less when smaller. */
     static float cornerRadius(int tileWidthPx, float density) {
-        return 16f * density * Math.min(1f, tileWidthPx / (DESIGN_W_DP * density));
+        return tileRadiusDp * density * Math.min(1f, tileWidthPx / (DESIGN_W_DP * density));
     }
 
     static final class Holder extends RecyclerView.ViewHolder {
@@ -792,7 +795,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 name.animate().cancel();
                 float scale = !animations ? 1f : tilt ? 1.17f : advancedEffects ? 1.12f : 1.10f;
                 boolean lift = focused && (advancedEffects || tilt);
-                if (focused && gloss != null && animations && !reducedMotion) gloss.sweep();
+                if (focused && gloss != null && animations && !reducedMotion) gloss.sweep(lastMoveKey == KeyEvent.KEYCODE_DPAD_LEFT);
                 float s = focused ? scale : 1f;
                 if (!animations) {
                     view.setScaleX(1f);

@@ -96,6 +96,7 @@ public class VolumeView extends View {
         icon.setStrokeJoin(Paint.Join.ROUND);
         text.setColor(0xFFFFFFFF);
         text.setTypeface(UiFont.get(context, R.string.font_medium) != null ? UiFont.get(context, R.string.font_medium) : Typeface.DEFAULT_BOLD);
+        text.setFontFeatureSettings("tnum");   // the level's digits keep their width as it counts
     }
 
     void setLook(Look look, int accent) {

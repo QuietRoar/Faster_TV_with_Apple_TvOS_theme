@@ -25,17 +25,32 @@ final class Controls {
     private static final String DEFAULT_HOME = "wifi,bluetooth,sleep,night";
     private static final String PREFS = "tvos", CC = "cc_items", HOME = "home_items";
 
-    /** How a control is drawn in Control Center. */
-    enum Shape { LARGE, PILL, ROUND, SLIDER }
+    /**
+     * A control's size in Control Center, the owner's choice: half a row (two side by side), the whole row, or a
+     * round button (four to a row, on the same columns). The Gloss slider always takes the whole row.
+     */
+    static final int WIDE = 0, FULL = 1, ROUND = 2;
+    static final int[] SIZE_NAMES = {R.string.cc_size_wide, R.string.cc_size_full, R.string.cc_size_round};
 
     private Controls() { }
 
-    static Shape shape(String key) {
+    static int size(Context ctx, String key) {
+        if (GLOSS.equals(key)) return FULL;
+        int v = prefs(ctx).getInt("cc_size_" + key, defaultSize(key));
+        return v < 0 || v >= SIZE_NAMES.length ? defaultSize(key) : v;
+    }
+
+    static void setSize(Context ctx, String key, int size) {
+        prefs(ctx).edit().putInt("cc_size_" + key, size).apply();
+    }
+
+    /** Shortcuts are round buttons; controls with a state to show (a network, a device, the time left) are pills. */
+    private static int defaultSize(String key) {
         switch (key) {
-            case POWER: return Shape.LARGE;
-            case GLOSS: return Shape.SLIDER;
-            case SETTINGS: case ASSISTANT: case HOME_SETTINGS: case REORDER: case THEMES: case WELCOME: return Shape.ROUND;
-            default: return Shape.PILL;
+            case POWER: case SETTINGS: case ASSISTANT: case HOME_SETTINGS: case REORDER: case THEMES: case WELCOME:
+                return ROUND;
+            default:
+                return WIDE;
         }
     }
 

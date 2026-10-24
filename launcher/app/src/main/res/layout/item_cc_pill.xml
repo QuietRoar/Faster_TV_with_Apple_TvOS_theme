@@ -1,5 +1,6 @@
 <?xml version="1.0" encoding="utf-8"?>
-<!-- A Control Center pill (tvos_style): icon, then a name with an optional status line. Glass is set in code. -->
+<!-- A Control Center pill (tvos_style): icon, then a name with an optional status line. Glass is set in code.
+     A long name shrinks down to 11sp to fit before it is cut short. -->
 <LinearLayout xmlns:android="http://schemas.android.com/apk/res/android"
     android:layout_width="0dp"
     android:layout_height="46dp"
@@ -30,13 +31,17 @@
         <TextView
             android:id="@+id/title"
             android:layout_width="match_parent"
-            android:layout_height="wrap_content"
+            android:layout_height="19dp"
             android:textColor="@drawable/pill_text"
             android:duplicateParentState="true"
             android:textSize="14sp"
             android:fontFamily="@string/font_medium"
-            android:singleLine="true"
-            android:ellipsize="end" />
+            android:maxLines="1"
+            android:ellipsize="end"
+            android:autoSizeTextType="uniform"
+            android:autoSizeMinTextSize="11sp"
+            android:autoSizeMaxTextSize="14sp"
+            android:autoSizeStepGranularity="0.5sp" />
 
         <TextView
             android:id="@+id/status"

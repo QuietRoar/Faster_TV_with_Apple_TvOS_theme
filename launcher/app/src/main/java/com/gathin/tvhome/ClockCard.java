@@ -30,6 +30,7 @@ public class ClockCard extends View {
         ring.setStrokeCap(Paint.Cap.ROUND);
         time.setTypeface(UiFont.get(context, R.string.font_medium));
         date.setTypeface(UiFont.get(context, R.string.font_regular));
+        time.setFontFeatureSettings("tnum");
     }
 
     /** The ring in the theme's accent; dark ink over a bright sky, as the rest of the header. */

@@ -36,7 +36,12 @@ import java.util.Random;
  * header and the dock follow whatever is behind them, so they adapt by themselves.
  */
 final class Themes {
-    static final String TVOS = "tvos", IMAGE = "img:";
+    static final String TVOS = "tvos", IMAGE = "img:", SLIDES = "slides";
+    /** The slideshow of your photos: how long each one stays, in minutes. */
+    static final int[] SLIDE_MINUTES = {1, 5, 15, 30, 60};
+    /** The symbols' colour over a photo: a pale tint of the photo's own colour, or plain white. */
+    static final int ICONS_AUTO = 0, ICONS_WHITE = 1;
+    static final int[] ICON_NAMES = {R.string.theme_icons_auto, R.string.theme_icons_white};
     /** Pictures you add from a USB drive are copied here, so the theme stays when the drive is out. */
     static final String MY_THEMES = "mythemes";
     /** The folder looked for on USB drives and the TV's own storage. */
@@ -52,6 +57,26 @@ final class Themes {
     static final int[] PATTERN_NAMES = {R.string.theme_pattern_off, R.string.theme_pattern_soft,
             R.string.theme_pattern_normal, R.string.theme_pattern_bold};
     static final int[] BRIGHTNESS_NAMES = {R.string.theme_darker, R.string.theme_normal, R.string.theme_brighter};
+    /**
+     * How a photo of your own meets the screen. Auto fills it when little would be cut off and shows the whole photo
+     * otherwise (a portrait photo, say), on a blurred, dimmed copy of itself so no bars show; Fill and Whole force one.
+     * Position picks the part kept when filling, or where the whole photo sits; Zoom enlarges it from there.
+     */
+    static final int FIT_AUTO = 0, FIT_FILL = 1, FIT_WHOLE = 2;
+    static final int[] FIT_NAMES = {R.string.photo_fit_auto, R.string.photo_fit_fill, R.string.photo_fit_whole};
+    static final int POS_CENTRE = 0, POS_TOP = 1, POS_BOTTOM = 2, POS_LEFT = 3, POS_RIGHT = 4;
+    static final int[] POSITION_NAMES = {R.string.photo_pos_centre, R.string.photo_pos_top, R.string.photo_pos_bottom,
+            R.string.photo_pos_left, R.string.photo_pos_right};
+    private static final float[] ZOOMS = {1f, 1.15f, 1.3f, 1.5f};
+    static final int[] ZOOM_NAMES = {R.string.photo_zoom_off, R.string.photo_zoom_115, R.string.photo_zoom_130,
+            R.string.photo_zoom_150};
+    /** Auto fills only when at least this much of the photo stays on screen. */
+    private static final float AUTO_FILL_KEEPS = 0.7f;
+
+    /** The app tiles' corners: soft (tvOS), round, or sharp; the dock band and the glass follow. */
+    static final int TILES_SOFT = 0, TILES_ROUND = 1, TILES_SHARP = 2;
+    static final int[] TILE_NAMES = {R.string.theme_tiles_soft, R.string.theme_tiles_round, R.string.theme_tiles_sharp};
+    private static final float[] TILE_RADIUS_DP = {16f, 26f, 6f};
 
     static final class Theme {
         final String id;
@@ -63,6 +88,8 @@ final class Themes {
         final int accent;
         final Pattern pattern;
         final File image;
+        /** The theme's own clock (Clock's style and place) and tiles; -1 keeps what the owner chose before. */
+        final int clockStyle, clockPlace, tiles;
 
         Theme(String id, int name, int base, int accent, Pattern pattern, float[][] blobs, int... blobColours) {
             this.id = id;
@@ -74,6 +101,29 @@ final class Themes {
             this.blobs = blobs;
             this.blobColours = blobColours;
             this.image = null;
+            this.clockStyle = -1;
+            this.clockPlace = -1;
+            this.tiles = -1;
+        }
+
+        private Theme(Theme t, int clockStyle, int clockPlace, int tiles) {
+            this.id = t.id;
+            this.name = t.name;
+            this.label = t.label;
+            this.base = t.base;
+            this.accent = t.accent;
+            this.pattern = t.pattern;
+            this.blobs = t.blobs;
+            this.blobColours = t.blobColours;
+            this.image = t.image;
+            this.clockStyle = clockStyle;
+            this.clockPlace = clockPlace;
+            this.tiles = tiles;
+        }
+
+        /** The same theme with a clock and tiles of its own. */
+        Theme look(int clockStyle, int clockPlace, int tiles) {
+            return new Theme(this, clockStyle, clockPlace, tiles);
         }
 
         /** A picture of your own. */
@@ -89,13 +139,29 @@ final class Themes {
             this.blobs = new float[0][];
             this.blobColours = new int[0];
             this.image = image;
+            this.clockStyle = -1;
+            this.clockPlace = -1;
+            this.tiles = -1;
         }
 
         boolean photos() {
             return TVOS.equals(id);
         }
 
+        /** The slideshow of your own photos. */
+        boolean slides() {
+            return SLIDES.equals(id);
+        }
+
+        /** Painted from your photos: a photo of yours, or their slideshow. */
+        boolean mine() {
+            return image != null || slides();
+        }
+
+        /** The name you gave it, else a photo's file name or the theme's own. */
         String title(Context ctx) {
+            String given = prefs(ctx).getString("theme_title_" + id, null);
+            if (given != null && !given.trim().isEmpty()) return given.trim();
             return label != null ? label : ctx.getString(name);
         }
     }
@@ -131,17 +197,66 @@ final class Themes {
             new Theme("dune", R.string.theme_dune, 0xFF2A1A0C, 0xFFFF9F0A, Pattern.DUNES,
                     b(.6f, .05f, .7f, .35f, .9f, .2f, .2f, .4f, .3f, .5f), 0xFFF3C27E, 0xFFE58F5A),
             new Theme("neon", R.string.theme_neon, 0xFF07020F, 0xFF00E5FF, Pattern.SYNTH,
-                    b(.5f, .3f, .7f, .3f, .7f, .2f, .1f, .4f, .3f, .5f), 0xFF5A0F8C, 0xFF0F2A6E));
+                    b(.5f, .3f, .7f, .3f, .7f, .2f, .1f, .4f, .3f, .5f), 0xFF5A0F8C, 0xFF0F2A6E),
+            // Themes with a look of their own: each brings its clock and its tiles.
+            new Theme("studio", R.string.theme_studio, 0xFF0C0C0E, 0xFFFFFFFF, Pattern.NONE,
+                    b(.15f, .1f, .5f, .4f, .55f, .85f, .2f, .35f, .3f, .3f), 0xFF3A3F4A, 0xFF23262D)
+                    .look(Clock.LARGE, Clock.TOP_LEFT, TILES_SHARP),
+            new Theme("editorial", R.string.theme_editorial, 0xFF14060A, 0xFFFF9F0A, Pattern.BOKEH,
+                    b(.2f, .15f, .5f, .4f, .75f, .8f, .2f, .4f, .35f, .55f), 0xFF7A1E2C, 0xFF3D0F24)
+                    .look(Clock.DAY, Clock.TOP_LEFT, TILES_SOFT),
+            new Theme("retro", R.string.theme_retro, 0xFF0D0716, 0xFFFF375F, Pattern.SYNTH,
+                    b(.5f, .25f, .7f, .3f, .8f, .2f, .1f, .35f, .3f, .55f), 0xFFE0661B, 0xFF6A1B9A)
+                    .look(Clock.STACKED, Clock.CENTRE, TILES_ROUND),
+            new Theme("glacier", R.string.theme_glacier, 0xFF06121C, 0xFF64D2FF, Pattern.MOUNTAINS,
+                    b(.4f, .1f, .7f, .35f, .85f, .85f, .15f, .35f, .3f, .6f), 0xFF8EC9E8, 0xFF3B6E9E)
+                    .look(Clock.GLASS, Clock.TOP_LEFT, TILES_ROUND),
+            new Theme("moss", R.string.theme_moss, 0xFF07110A, 0xFF30D158, Pattern.CONTOURS,
+                    b(.3f, .1f, .6f, .4f, .8f, .8f, .2f, .35f, .3f, .55f), 0xFF2F5D3A, 0xFF5E7F2A)
+                    .look(Clock.WIDGET, Clock.TOP_LEFT, TILES_SOFT));
 
     private Themes() { }
 
     // ---- which themes there are, and the chosen one --------------------------------------------------------
 
     /** The built-in themes, then your pictures. */
+    /** The built-in themes, then the slideshow of your photos (once there is one), then each photo. */
     static List<Theme> all(Context ctx) {
         List<Theme> out = new ArrayList<>(BUILT_IN);
-        for (File f : myImages(ctx)) out.add(new Theme(f));
+        List<File> mine = myImages(ctx);
+        if (!mine.isEmpty()) out.add(SLIDESHOW);
+        for (File f : mine) out.add(new Theme(f));
         return out;
+    }
+
+    static final Theme SLIDESHOW = new Theme(SLIDES, R.string.theme_slides, 0xFF000000, 0xFF0A84FF, Pattern.NONE,
+            new float[0][]);
+
+    static void rename(Context ctx, Theme t, String title) {
+        prefs(ctx).edit().putString("theme_title_" + t.id, title.trim()).apply();
+    }
+
+    // ---- the slideshow ------------------------------------------------------------------------------------
+
+    static int slideMinutesChoice(Context ctx) {
+        return clamp(prefs(ctx).getInt("slides_minutes", 1), SLIDE_MINUTES.length);
+    }
+
+    static void setSlideMinutes(Context ctx, int choice) {
+        prefs(ctx).edit().putInt("slides_minutes", choice).apply();
+    }
+
+    /** The photo the slideshow is on now, as its own theme (so its fit, position and zoom apply); null with none. */
+    static Theme currentSlide(Context ctx) {
+        List<File> mine = myImages(ctx);
+        if (mine.isEmpty()) return null;
+        int i = Math.floorMod(prefs(ctx).getInt("slides_at", 0), mine.size());
+        return new Theme(mine.get(i));
+    }
+
+    /** On to the next photo. */
+    static void nextSlide(Context ctx) {
+        prefs(ctx).edit().putInt("slides_at", prefs(ctx).getInt("slides_at", 0) + 1).apply();
     }
 
     /** Pictures that are themes: pushed with the theme folder (mythemes/) or copied from a USB drive. */
@@ -153,23 +268,50 @@ final class Themes {
         return files;
     }
 
-    /** Pictures in a "TV Themes" folder on a USB drive or the TV's own storage, not yet added. */
+    /** Photos found on the TV or a USB drive at most; the newest are kept. */
+    static final int MAX_FOUND = 40;
+    /** Smaller files are thumbnails and icons, not photos for a whole screen. */
+    private static final long MIN_PHOTO_BYTES = 60 * 1024;
+    /** The folders photos land in on the TV and on a drive: a "TV Themes" folder, the camera's, downloads,
+     *  pictures, and what arrives over Bluetooth. */
+    private static final String[] PHOTO_FOLDERS = {USB_FOLDER, "Pictures/" + USB_FOLDER, "DCIM", "DCIM/Camera",
+            "Pictures", "Download", "bluetooth", "Bluetooth", ""};
+
+    /** Photos on the TV's own storage or a USB drive, newest first, not yet added. */
     static List<File> onDrives(Context ctx) {
-        List<File> found = new ArrayList<>();
-        addImages(found, new File(Environment.getExternalStorageDirectory(), USB_FOLDER));
-        addImages(found, new File(Environment.getExternalStoragePublicDirectory(Environment.DIRECTORY_PICTURES), USB_FOLDER));
+        List<File> roots = new ArrayList<>();
+        roots.add(Environment.getExternalStorageDirectory());
         File[] volumes = new File("/storage").listFiles();
         if (volumes != null) {
             for (File v : volumes) {
-                if (v.getName().equals("emulated") || v.getName().equals("self")) continue;
-                addImages(found, new File(v, USB_FOLDER));
+                if (!v.getName().equals("emulated") && !v.getName().equals("self")) roots.add(v);
+            }
+        }
+        List<File> found = new ArrayList<>();
+        for (File root : roots) {
+            for (String folder : PHOTO_FOLDERS) {
+                // The storage's top level only on a drive: the TV's own holds nothing but folders there.
+                if (folder.isEmpty() && root.equals(Environment.getExternalStorageDirectory())) continue;
+                addImages(found, folder.isEmpty() ? root : new File(root, folder));
             }
         }
         List<String> have = new ArrayList<>();
         for (File f : myImages(ctx)) have.add(f.getName());
+        List<String> seen = new ArrayList<>();
         List<File> out = new ArrayList<>();
-        for (File f : found) if (!have.contains(f.getName())) out.add(f);
-        return out;
+        for (File f : found) {
+            String key = f.getAbsolutePath();
+            if (have.contains(f.getName()) || seen.contains(key) || f.length() < MIN_PHOTO_BYTES) continue;
+            seen.add(key);
+            out.add(f);
+        }
+        Collections.sort(out, (a, b) -> Long.compare(b.lastModified(), a.lastModified()));
+        return out.size() > MAX_FOUND ? new ArrayList<>(out.subList(0, MAX_FOUND)) : out;
+    }
+
+    /** A small copy of a photo for a list row: decoded at a fraction of its size, turned upright. */
+    static Bitmap thumbnail(File file, int width, int height) {
+        return picture(file, width, height, FIT_FILL, POS_CENTRE, 1f);
     }
 
     private static void addImages(List<File> into, File dir) {
@@ -203,6 +345,7 @@ final class Themes {
     }
 
     static Theme find(Context ctx, String id) {
+        if (SLIDES.equals(id) && !myImages(ctx).isEmpty()) return SLIDESHOW;
         if (id != null && id.startsWith(IMAGE)) {
             File f = new File(id.substring(IMAGE.length()));
             if (f.isFile()) return new Theme(f);
@@ -237,6 +380,32 @@ final class Themes {
         return prefs(ctx).getInt("theme_bright_" + t.id, 1);
     }
 
+    static int fitChoice(Context ctx, Theme t) {
+        return clamp(prefs(ctx).getInt("theme_fit_" + t.id, FIT_AUTO), FIT_NAMES.length);
+    }
+
+    static int positionChoice(Context ctx, Theme t) {
+        return clamp(prefs(ctx).getInt("theme_pos_" + t.id, POS_CENTRE), POSITION_NAMES.length);
+    }
+
+    static int zoomChoice(Context ctx, Theme t) {
+        return clamp(prefs(ctx).getInt("theme_zoom_" + t.id, 0), ZOOM_NAMES.length);
+    }
+
+    private static int clamp(int v, int count) {
+        return v < 0 || v >= count ? 0 : v;
+    }
+
+    /** A key for a theme's look as painted, so a cached preview is redrawn after any change to it. */
+    static String paintKey(Context ctx, Theme t) {
+        if (t.slides()) {
+            Theme slide = currentSlide(ctx);
+            return SLIDES + "|" + (slide == null ? "" : paintKey(ctx, slide));
+        }
+        return t.id + "|" + patternChoice(ctx, t) + brightnessChoice(ctx, t) + fitChoice(ctx, t) + positionChoice(ctx, t)
+                + zoomChoice(ctx, t);
+    }
+
     static void setChoice(Context ctx, Theme t, String what, int value) {
         prefs(ctx).edit().putInt("theme_" + what + "_" + t.id, value).apply();
     }
@@ -246,8 +415,48 @@ final class Themes {
         Theme t = current(ctx);
         int choice = accentChoice(ctx, t);
         if (choice > 0 && choice < ACCENTS.length) return ACCENTS[choice];
+        if (t.slides()) {
+            Theme slide = currentSlide(ctx);
+            if (slide != null) t = slide;
+        }
         if (t.image != null) return prefs(ctx).getInt("theme_sampled_" + t.id, t.accent);
         return t.accent;
+    }
+
+    static int iconsChoice(Context ctx, Theme t) {
+        return clamp(prefs(ctx).getInt("theme_icons_" + t.id, ICONS_AUTO), ICON_NAMES.length);
+    }
+
+    /**
+     * The header symbols' and clock's colour at rest: over your photos, by default, a tint of the photo's own colour,
+     * pale over a dark picture and deep over a bright one, so they look part of it and stay easy to read; plain
+     * white or near black otherwise.
+     */
+    static int ink(Context ctx, boolean overBright) {
+        Theme t = current(ctx);
+        int plain = overBright ? 0xFF1C1C1E : 0xFFFFFFFF;
+        if (!t.mine() || iconsChoice(ctx, t) != ICONS_AUTO) return plain;
+        float[] hsv = new float[3];
+        Color.colorToHSV(accent(ctx), hsv);
+        if (overBright) {
+            hsv[1] = Math.min(1f, Math.max(0.55f, hsv[1]));
+            hsv[2] = 0.28f;   // deep enough for text over a bright sky
+        } else {
+            hsv[1] = Math.min(0.3f, hsv[1] * 0.45f);
+            hsv[2] = 1f;   // pale: white with the photo's colour in it
+        }
+        return Color.HSVToColor(hsv);
+    }
+
+    /** The current theme's tile corners: your choice for it, else its own, else soft. */
+    static int tilesChoice(Context ctx, Theme t) {
+        int own = t.tiles >= 0 ? t.tiles : TILES_SOFT;
+        int v = prefs(ctx).getInt("theme_tiles_" + t.id, own);
+        return v < 0 || v >= TILE_NAMES.length ? TILES_SOFT : v;
+    }
+
+    static float tileRadiusDp(Context ctx) {
+        return TILE_RADIUS_DP[tilesChoice(ctx, current(ctx))];
     }
 
     // ---- painting ------------------------------------------------------------------------------------------
@@ -264,10 +473,14 @@ final class Themes {
 
     /** Paints a theme at width x height with its current choices; for previews too. */
     static Bitmap render(Context ctx, Theme t, int width, int height) {
+        if (t.slides()) {
+            Theme slide = currentSlide(ctx);
+            if (slide != null) t = slide;
+        }
         int pattern = patternChoice(ctx, t), bright = brightnessChoice(ctx, t);
         Bitmap bitmap;
         if (t.image != null) {
-            bitmap = picture(t.image, width, height);
+            bitmap = picture(t.image, width, height, fitChoice(ctx, t), positionChoice(ctx, t), ZOOMS[zoomChoice(ctx, t)]);
             if (bitmap == null) bitmap = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
             else if (width >= 300) prefs(ctx).edit().putInt("theme_sampled_" + t.id, sample(bitmap)).apply();
         } else {
@@ -349,8 +562,8 @@ final class Themes {
         bitmap.setPixels(px, 0, w, 0, 0, w, h);
     }
 
-    /** A picture, centre-cropped to fill the screen. */
-    private static Bitmap picture(File file, int width, int height) {
+    /** A photo at width x height: filled or whole (see FIT_AUTO), at its position and zoom, turned upright. */
+    private static Bitmap picture(File file, int width, int height, int fit, int position, float zoom) {
         BitmapFactory.Options o = new BitmapFactory.Options();
         o.inJustDecodeBounds = true;
         BitmapFactory.decodeFile(file.getPath(), o);
@@ -360,14 +573,67 @@ final class Themes {
         while (o.outWidth / (o.inSampleSize * 2) >= width && o.outHeight / (o.inSampleSize * 2) >= height) o.inSampleSize *= 2;
         Bitmap src = BitmapFactory.decodeFile(file.getPath(), o);
         if (src == null) return null;
+        int turn = rotation(file);
+        if (turn != 0) {
+            // A phone's portrait photo is stored sideways with a note to turn it: turned upright here.
+            Matrix r = new Matrix();
+            r.setRotate(turn);
+            Bitmap upright = Bitmap.createBitmap(src, 0, 0, src.getWidth(), src.getHeight(), r, true);
+            if (upright != src) src.recycle();
+            src = upright;
+        }
+        float sw = src.getWidth(), sh = src.getHeight();
+        float fill = Math.max(width / sw, height / sh), whole = Math.min(width / sw, height / sh);
+        boolean filled = fit == FIT_FILL || fit == FIT_AUTO && (whole / fill) * (whole / fill) >= AUTO_FILL_KEEPS;
         Bitmap out = Bitmap.createBitmap(width, height, Bitmap.Config.ARGB_8888);
-        float s = Math.max(width / (float) src.getWidth(), height / (float) src.getHeight());
+        Canvas c = new Canvas(out);
+        Paint smooth = new Paint(Paint.FILTER_BITMAP_FLAG);
+        if (!filled) blurredBackdrop(c, src, width, height, fill, smooth);
+        float s = (filled ? fill : whole) * zoom;
+        float dx = width - sw * s, dy = height - sh * s;
+        float x = position == POS_LEFT ? 0 : position == POS_RIGHT ? dx : dx / 2f;
+        float y = position == POS_TOP ? 0 : position == POS_BOTTOM ? dy : dy / 2f;
+        if (filled || zoom > 1f) {
+            // Never past an edge: a filled or zoomed photo always covers the screen where it can.
+            x = dx < 0 ? Math.max(dx, Math.min(0, x)) : x;
+            y = dy < 0 ? Math.max(dy, Math.min(0, y)) : y;
+        }
         Matrix m = new Matrix();
         m.setScale(s, s);
-        m.postTranslate((width - src.getWidth() * s) / 2f, (height - src.getHeight() * s) / 2f);
-        new Canvas(out).drawBitmap(src, m, new Paint(Paint.FILTER_BITMAP_FLAG));
+        m.postTranslate(x, y);
+        c.drawBitmap(src, m, smooth);
         src.recycle();
         return out;
+    }
+
+    /** Behind a whole photo: the photo itself filling the screen, blurred by shrinking it a lot, and dimmed. */
+    private static void blurredBackdrop(Canvas c, Bitmap src, int width, int height, float fill, Paint smooth) {
+        int bw = Math.max(1, width / 32), bh = Math.max(1, height / 32);
+        Bitmap tiny = Bitmap.createBitmap(bw, bh, Bitmap.Config.ARGB_8888);
+        Matrix m = new Matrix();
+        float s = fill * bw / width;
+        m.setScale(s, s);
+        m.postTranslate((bw - src.getWidth() * s) / 2f, (bh - src.getHeight() * s) / 2f);
+        new Canvas(tiny).drawBitmap(src, m, smooth);
+        // Up again in two steps, which smooths the blocks into a soft blur.
+        Bitmap mid = Bitmap.createScaledBitmap(tiny, bw * 4, bh * 4, true);
+        tiny.recycle();
+        c.drawBitmap(mid, null, new RectF(0, 0, width, height), smooth);
+        mid.recycle();
+        c.drawColor(0x66000000);
+    }
+
+    /** How far a photo's EXIF says to turn it, in degrees; 0 for a PNG, a WebP or a photo without the note. */
+    private static int rotation(File file) {
+        try {
+            int o = new android.media.ExifInterface(file.getPath()).getAttributeInt(
+                    android.media.ExifInterface.TAG_ORIENTATION, android.media.ExifInterface.ORIENTATION_NORMAL);
+            return o == android.media.ExifInterface.ORIENTATION_ROTATE_90 ? 90
+                    : o == android.media.ExifInterface.ORIENTATION_ROTATE_180 ? 180
+                    : o == android.media.ExifInterface.ORIENTATION_ROTATE_270 ? 270 : 0;
+        } catch (IOException | RuntimeException e) {
+            return 0;
+        }
     }
 
     /** A picture's own accent: the most saturated of its brighter colours, lifted so it reads on dark glass. */

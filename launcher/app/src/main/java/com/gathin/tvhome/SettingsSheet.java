@@ -71,9 +71,11 @@ import java.util.concurrent.Executors;
 final class SettingsSheet {
     static final String HUB = "hub", WIFI = "wifi", SOUND = "sound", APPS = "apps", ABOUT = "about",
             CONTROLS = "controls", ACCOUNT = "account", MEMORY = "memory", THEMES = "themes", WELCOME = "welcome",
-            VOLUME = "volume", CLOCK = "clock", SOUNDS = "sounds";
+            VOLUME = "volume", CLOCK = "clock", SOUNDS = "sounds", INPUTS = "inputs", BLUETOOTH = "bluetooth",
+            UPLOAD = "upload", FOUND = "found", DISPLAY = "display", DATETIME = "datetime", KEYBOARD = "keyboard",
+            PRIVACY = "privacy", NAME = "name", ANDROID = "android";
     private static final String THEME = "theme:", BANNER = "banner:", PICK = "pick:";
-    private static final String CONTROL = "control:";
+    private static final String CONTROL = "control:", BT_DEVICE = "btdevice:", RENAME = "rename:";
     private static final String PASSWORD = "password:", NETWORK = "network:", APP = "app:";
     /** Screensaver start (Settings.System.SCREEN_OFF_TIMEOUT) and sleep (Settings.Secure.SLEEP_TIMEOUT), in ms. */
     private static final int[] SCREENSAVER_MS = {60_000, 300_000, 900_000, 1_800_000, 3_600_000, Integer.MAX_VALUE};
@@ -188,12 +190,15 @@ final class SettingsSheet {
             }
         };
         sheet.setClickable(true);   // touches on it never reach Home
-        int width = (int) ((compact ? 350 : 440) * density);
+        // A compact card has Control Center's size and edges (its 340 dp less its 6 dp padding each side), so every
+        // control's card lines up with it, whatever page it shows.
+        int width = (int) ((compact ? 328 : 440) * density);
         int height = compact ? ViewGroup.LayoutParams.WRAP_CONTENT : ViewGroup.LayoutParams.MATCH_PARENT;
         FrameLayout.LayoutParams lp = new FrameLayout.LayoutParams(width, height, Gravity.END | Gravity.TOP);
-        lp.setMargins(margin, top, compact ? home.headerRightInset() : margin, margin);
+        lp.setMargins(margin, top, compact ? home.headerRightInset() - (int) (4 * density) : margin, margin);
         sheet.addView(panel, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT, height));
-        panel.setBackground(new LiquidGlass.Background(panel, (compact ? 24 : 28) * density, 0x99141416, false));
+        // Concentric with the rows: their 14 dp corners plus the panel's side padding.
+        panel.setBackground(new LiquidGlass.Background(panel, (compact ? 26 : 36) * density, 0x99141416, false));
         panel.setElevation(16 * density);
         focusBefore = home.getCurrentFocus();
         home.homeRoot().addView(sheet, lp);
@@ -219,6 +224,7 @@ final class SettingsSheet {
     }
 
     private void push(String page) {
+        forgetArmed = false;
         stack.push(page);
         render(null);
     }
@@ -227,13 +233,35 @@ final class SettingsSheet {
     void dismiss() {
         if (!isShowing()) return;
         stopWifi();
-        home.homeRoot().removeView(sheet);
+        stopBluetooth();
+        stopUpload();
+        // Out quicker and quieter than it came in: 150 ms, a short slide back and a fade. Focus is back on Home at
+        // once, and the sheet is let go, so showing it again builds a new one while this one fades.
+        FrameLayout gone = sheet;
+        sheet = null;
+        gone.setDescendantFocusability(ViewGroup.FOCUS_BLOCK_DESCENDANTS);
+        View card = gone.getChildAt(0);
+        card.animate().cancel();
+        card.animate().alpha(0f).translationX(card.getWidth() / 10f).setDuration(150)
+                .setInterpolator(new android.view.animation.AccelerateInterpolator())
+                .withEndAction(() -> home.homeRoot().removeView(gone)).start();
         if (focusBefore != null && focusBefore.isAttachedToWindow()) focusBefore.requestFocus();
         focusBefore = null;
     }
 
     /** Rebuilds the top page, keeping focus on the row with focusTag (or the one focused now). */
     private void render(Object focusTag) {
+        // Rebuilding moves focus off the old rows and onto the new ones; that is no step of the owner's, so it is
+        // silent (a Bluetooth search rebuilds its page each time a device turns up).
+        TvSounds.hush(true);
+        try {
+            build(focusTag);
+        } finally {
+            TvSounds.hush(false);
+        }
+    }
+
+    private void build(Object focusTag) {
         if (focusTag == null && rows.findFocus() != null) focusTag = rows.findFocus().getTag();
         rows.removeAllViews();
         String page = stack.peek();
@@ -249,16 +277,30 @@ final class SettingsSheet {
         else if (VOLUME.equals(page)) volumePage();
         else if (CLOCK.equals(page)) clockPage();
         else if (SOUNDS.equals(page)) soundsPage();
+        else if (INPUTS.equals(page)) inputsPage();
+        else if (BLUETOOTH.equals(page)) bluetoothPage();
+        else if (UPLOAD.equals(page)) uploadPage();
+        else if (FOUND.equals(page)) foundPage();
+        else if (DISPLAY.equals(page)) displayPage();
+        else if (DATETIME.equals(page)) dateTimePage();
+        else if (KEYBOARD.equals(page)) keyboardPage();
+        else if (PRIVACY.equals(page)) privacyPage();
+        else if (NAME.equals(page)) namePage();
+        else if (ANDROID.equals(page)) androidPage();
         else if (page.startsWith(THEME)) themePage(page.substring(THEME.length()));
         else if (page.startsWith(PICK)) pickPage(page.substring(PICK.length()));
         else if (page.startsWith(BANNER)) bannerPage(page.substring(BANNER.length()));
         else if (page.startsWith(CONTROL)) controlPage(page.substring(CONTROL.length()));
+        else if (page.startsWith(BT_DEVICE)) btDevicePage(page.substring(BT_DEVICE.length()));
+        else if (page.startsWith(RENAME)) renamePage(page.substring(RENAME.length()));
         else if (page.startsWith(PASSWORD)) passwordPage(page.substring(PASSWORD.length()));
         else if (page.startsWith(NETWORK)) networkPage(page.substring(NETWORK.length()));
         else if (page.startsWith(APP)) appPage(page.substring(APP.length()));
         else hubPage();
         if (WIFI.equals(page) || page.startsWith(NETWORK)) startWifi();
         else stopWifi();
+        if (!BLUETOOTH.equals(page) && !page.startsWith(BT_DEVICE)) stopBluetooth();
+        if (!UPLOAD.equals(page)) stopUpload();
         TvSounds.mute(rows);
         View target = null;
         if (focusTag != null) {
@@ -327,50 +369,318 @@ final class SettingsSheet {
 
     // ---- hub ----------------------------------------------------------------------------------------------
 
+    /** The hub, grouped as tvOS groups its Settings: what connects, how Home looks, how it sounds, the system. */
     private void hubPage() {
         title.setText(R.string.settings);
+        header(home.getString(R.string.set_group_connect));
         row(R.drawable.ic_wifi, home.getString(R.string.wifi), wifiSummary(), WIFI, true, () -> push(WIFI));
         BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
         if (adapter != null) {
-            row(R.drawable.ic_bluetooth, home.getString(R.string.bluetooth), home.bluetoothSummary(adapter), "bt", true, () -> {
-                dismiss();
-                home.homeRoot().post(home::showBluetooth);
-            });
+            row(R.drawable.ic_bluetooth, home.getString(R.string.bluetooth), home.bluetoothSummary(adapter), BLUETOOTH, true,
+                    () -> push(BLUETOOTH));
         }
-        row(R.drawable.ic_input, home.getString(R.string.inputs), null, "inputs", true, () -> {
+        row(R.drawable.ic_input, home.getString(R.string.inputs), null, INPUTS, true, () -> {
+            if (!home.inputsArePanel()) {
+                push(INPUTS);
+                return;
+            }
             dismiss();
-            home.homeRoot().post(home::showInputs);
+            home.homeRoot().post(home::showInputs);   // the TV's own source panel
         });
-        row(R.drawable.ic_volume, home.getString(R.string.set_sound), null, SOUND, true, () -> push(SOUND));
-        row(R.drawable.ic_apps, home.getString(R.string.set_apps), null, APPS, true, () -> push(APPS));
-        row(R.drawable.ic_info, home.getString(R.string.set_about), Build.MODEL, ABOUT, true, () -> push(ABOUT));
+        header(home.getString(R.string.set_group_look));
         row(R.drawable.ic_themes, home.getString(R.string.themes), Themes.current(home).title(home), THEMES, true,
                 () -> push(THEMES));
+        row(R.drawable.ic_clock, home.getString(R.string.clock), home.getString(Clock.STYLE_NAMES[Clock.style(home)]), CLOCK, true,
+                () -> push(CLOCK));
         row(R.drawable.ic_wave, home.getString(R.string.welcome), null, WELCOME, true, () -> push(WELCOME));
         row(R.drawable.ic_volume, home.getString(R.string.volume),
                 home.getString(VolumeView.Look.read(home).enabled ? VolumeView.STYLE_NAMES[VolumeView.Look.read(home).style] : R.string.bt_off),
                 VOLUME, true, () -> push(VOLUME));
-        row(R.drawable.ic_clock, home.getString(R.string.clock), home.getString(Clock.STYLE_NAMES[Clock.style(home)]), CLOCK, true,
-                () -> push(CLOCK));
-        row(R.drawable.ic_volume, home.getString(R.string.snd_title), home.getString(TvSounds.PACK_NAMES[TvSounds.pack(home)]),
-                SOUNDS, true, () -> push(SOUNDS));
         View night = row(R.drawable.ic_night, home.getString(R.string.night_mode),
                 home.getString(Comfort.nightMode(home) ? R.string.bt_on : R.string.bt_off), "night", false, () -> {
                     home.toggleNightMode();
                     render("night");
                 });
         stepper(night, night::performClick, night::performClick);
-        row(R.drawable.ic_boost, home.getString(R.string.boost), null, MEMORY, true, () -> {
-            boostRequested = true;
-            push(MEMORY);
-        });
+        header(home.getString(R.string.set_group_sound));
+        row(R.drawable.ic_volume, home.getString(R.string.set_sound), null, SOUND, true, () -> push(SOUND));
+        row(R.drawable.ic_volume, home.getString(R.string.snd_title), home.getString(TvSounds.PACK_NAMES[TvSounds.pack(home)]),
+                SOUNDS, true, () -> push(SOUNDS));
+        header(home.getString(R.string.set_group_system));
+        row(R.drawable.ic_apps, home.getString(R.string.set_apps), null, APPS, true, () -> push(APPS));
         row(R.drawable.ic_control_center, home.getString(R.string.set_controls), null, CONTROLS, true, () -> push(CONTROLS));
         row(R.drawable.ic_tune, home.getString(R.string.cc_home_settings), null, "home", true, () -> {
             dismiss();
             home.openLauncherSettings();
         });
+        row(R.drawable.ic_boost, home.getString(R.string.boost), null, MEMORY, true, () -> {
+            boostRequested = true;
+            push(MEMORY);
+        });
+        header(home.getString(R.string.set_group_device));
+        row(R.drawable.ic_picture, home.getString(R.string.dev_display), null, DISPLAY, true, () -> push(DISPLAY));
+        row(R.drawable.ic_clock, home.getString(R.string.dev_datetime), DeviceSettings.timeZone(), DATETIME, true,
+                () -> push(DATETIME));
+        row(R.drawable.ic_tune, home.getString(R.string.dev_keyboard), keyboardName(), KEYBOARD, true, () -> push(KEYBOARD));
+        row(R.drawable.ic_lock, home.getString(R.string.dev_privacy), null, PRIVACY, true, () -> push(PRIVACY));
+        row(R.drawable.ic_livetv, home.getString(R.string.dev_name), DeviceSettings.deviceName(home), NAME, true,
+                () -> push(NAME));
+        row(R.drawable.ic_info, home.getString(R.string.set_about), Build.MODEL, ABOUT, true, () -> push(ABOUT));
+        row(R.drawable.ic_settings, home.getString(R.string.dev_android), null, ANDROID, true, () -> push(ANDROID));
+    }
+
+    // ---- Device: Android's settings, in the launcher -----------------------------------------------------------
+
+    /** A row for an Android setting the launcher just tried to change: said plainly when Android refused it. */
+    private void refused(boolean ok) {
+        if (!ok) Toast.makeText(home, R.string.dev_refused, Toast.LENGTH_LONG).show();
+    }
+
+    /** An on/off row for an Android setting; OK, Left and Right flip it. */
+    private void switchRow(int icon, int name, boolean on, String tag, java.util.function.Predicate<Boolean> set) {
+        View row = row(icon, home.getString(name), home.getString(on ? R.string.bt_on : R.string.bt_off), tag, false, () -> {
+            refused(set.test(!on));
+            render(tag);
+        });
+        stepper(row, row::performClick, row::performClick);
+    }
+
+    /** Opens one of Android's own pages from the list; left out when this TV has no such page. */
+    private void androidRow(DeviceSettings.Page page) {
+        android.content.Intent intent = page.intent(home);
+        if (intent != null) externalRow(page.icon, home.getString(page.name), intent);
+    }
+
+    /** Which screensaver and when, when the TV sleeps, the text size and how fast windows animate. */
+    private void displayPage() {
+        title.setText(R.string.dev_display);
+        header(home.getString(R.string.dev_screensaver));
+        List<DeviceSettings.Dream> dreams = DeviceSettings.dreams(home);
+        String[] names = new String[dreams.size()];
+        for (int i = 0; i < names.length; i++) names[i] = dreams.get(i).label;
+        listRow(R.drawable.ic_picture, home.getString(R.string.dev_screensaver), names, null,
+                DeviceSettings.currentDream(home, dreams), "dream", i -> refused(DeviceSettings.setDream(home, dreams.get(i))), null);
+        boolean canWrite = Settings.System.canWrite(home);
+        choiceRow(R.drawable.ic_sleep, R.string.set_screensaver, "screensaver", SCREENSAVER_MS,
+                Settings.System.getInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 300_000),
+                ms -> canWrite && Settings.System.putInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, ms));
+        choiceRow(R.drawable.ic_power, R.string.set_sleep, "sleep", SLEEP_MS,
+                Settings.Secure.getInt(home.getContentResolver(), "sleep_timeout", -1),
+                ms -> {
+                    try {
+                        return Settings.Secure.putInt(home.getContentResolver(), "sleep_timeout", ms);
+                    } catch (SecurityException e) {
+                        return false;
+                    }
+                });
+        header(home.getString(R.string.dev_screen));
+        cycleRow(R.drawable.ic_tune, R.string.dev_text, DeviceSettings.FONT_NAMES,
+                DeviceSettings.nearest(DeviceSettings.FONT_SCALES, DeviceSettings.fontScale(home)), "font",
+                i -> refused(DeviceSettings.setFontScale(home, DeviceSettings.FONT_SCALES[i])));
+        cycleRow(R.drawable.ic_gloss, R.string.dev_anim, DeviceSettings.ANIMATION_NAMES,
+                DeviceSettings.nearest(DeviceSettings.ANIMATION_SCALES, DeviceSettings.animationScale(home)), "anim",
+                i -> refused(DeviceSettings.setAnimationScale(home, DeviceSettings.ANIMATION_SCALES[i])));
         header(home.getString(R.string.set_more));
-        externalRow(R.drawable.ic_settings, home.getString(R.string.set_android), home.systemIntent(Settings.ACTION_SETTINGS));
+        androidRow(DeviceSettings.PICTURE);
+    }
+
+    /** Network time and time zone, and 12 or 24 hours; the zone itself is picked on Android's page. */
+    private void dateTimePage() {
+        title.setText(R.string.dev_datetime);
+        switchRow(R.drawable.ic_clock, R.string.dev_auto_time, DeviceSettings.autoTime(home), "autotime",
+                on -> DeviceSettings.setAutoTime(home, on));
+        switchRow(R.drawable.ic_wifi, R.string.dev_auto_zone, DeviceSettings.autoZone(home), "autozone",
+                on -> DeviceSettings.setAutoZone(home, on));
+        cycleRow(R.drawable.ic_clock, R.string.dev_hours, DeviceSettings.HOUR_NAMES, DeviceSettings.hours(home), "hours", i -> {
+            refused(DeviceSettings.setHours(home, i));
+            home.applyClock();   // the header and big clocks in the new format at once
+        });
+        row(R.drawable.ic_info, home.getString(R.string.dev_zone), DeviceSettings.timeZone(), "zone", false, null);
+        header(home.getString(R.string.set_more));
+        androidRow(DeviceSettings.page(R.string.and_date));   // setting the zone or the time by hand
+    }
+
+    private String keyboardName() {
+        String id = DeviceSettings.currentKeyboard(home);
+        for (android.view.inputmethod.InputMethodInfo ime : DeviceSettings.keyboards(home)) {
+            if (ime.getId().equals(id)) return String.valueOf(ime.loadLabel(home.getPackageManager()));
+        }
+        return null;
+    }
+
+    /** Every keyboard installed; OK makes one the keyboard that comes up. */
+    private void keyboardPage() {
+        title.setText(R.string.dev_keyboard);
+        String current = DeviceSettings.currentKeyboard(home);
+        for (android.view.inputmethod.InputMethodInfo ime : DeviceSettings.keyboards(home)) {
+            boolean on = ime.getId().equals(current);
+            row(on ? R.drawable.ic_check : R.drawable.ic_blank, ime.loadLabel(home.getPackageManager()),
+                    on ? home.getString(R.string.dev_in_use) : null, "ime:" + ime.getId(), false, () -> {
+                        refused(DeviceSettings.setKeyboard(home, ime));
+                        render("ime:" + ime.getId());
+                    });
+        }
+        header(home.getString(R.string.set_more));
+        androidRow(DeviceSettings.page(R.string.and_keyboard));   // each keyboard's own languages and options
+    }
+
+    /** Location for apps that use it, and Android's pages for unknown sources, security and diagnostics. */
+    private void privacyPage() {
+        title.setText(R.string.dev_privacy);
+        switchRow(R.drawable.ic_info, R.string.dev_location, DeviceSettings.location(home), "location",
+                on -> DeviceSettings.setLocation(home, on));
+        header(home.getString(R.string.set_more));
+        for (int name : new int[]{R.string.and_unknown_sources, R.string.and_security, R.string.and_privacy,
+                R.string.and_location}) {
+            androidRow(DeviceSettings.page(name));
+        }
+    }
+
+    /** The name phones see when casting and in Bluetooth lists. */
+    private void namePage() {
+        title.setText(R.string.dev_name);
+        String[] typed = {DeviceSettings.deviceName(home)};
+        textField(typed[0], R.string.dev_name, "namefield", text -> typed[0] = text);
+        row(R.drawable.ic_check, home.getString(R.string.dev_name_save), null, "save", false, () -> {
+            boolean ok = DeviceSettings.setDeviceName(home, typed[0]);
+            refused(ok);
+            if (ok) Toast.makeText(home, home.getString(R.string.dev_name_saved, typed[0].trim()), Toast.LENGTH_SHORT).show();
+        });
+        row(R.drawable.ic_info, home.getString(R.string.dev_name_how), null, "how", false, null);
+    }
+
+    /** Every other page of Android's Settings that this TV has, each opened directly. */
+    private void androidPage() {
+        title.setText(R.string.dev_android);
+        for (DeviceSettings.Page page : DeviceSettings.ANDROID_PAGES) androidRow(page);
+    }
+
+    // ---- Inputs and Bluetooth -------------------------------------------------------------------------------
+
+    /** The inputs to switch to, as rows of this sheet: picking one switches and closes it. */
+    private void inputsPage() {
+        title.setText(R.string.inputs);
+        List<MainActivity.ListRow> list = home.inputRows();
+        if (list.isEmpty()) row(R.drawable.ic_info, home.getString(R.string.no_inputs), null, "none", false, null);
+        listRows(list);
+    }
+
+    /** True while this sheet scans for and connects Bluetooth devices (only while the Bluetooth page is open). */
+    private boolean bluetoothOn;
+
+    /** A theme's name: typed with the keyboard, saved with Save. Empty goes back to its own name. */
+    private void renamePage(String id) {
+        Themes.Theme t = Themes.find(home, id);
+        title.setText(R.string.theme_name);
+        String[] typed = {t.title(home)};
+        textField(typed[0], R.string.theme_name, "namefield", text -> typed[0] = text);
+        row(R.drawable.ic_check, home.getString(R.string.theme_name_save), null, "save", false, () -> {
+            Themes.rename(home, t, typed[0]);
+            previews.clear();
+            Toast.makeText(home, home.getString(R.string.theme_renamed, Themes.find(home, id).title(home)), Toast.LENGTH_SHORT).show();
+            back();
+        });
+    }
+
+    /** Paired and nearby devices, kept current while the page is open, as rows of this sheet. */
+    private void bluetoothPage() {
+        title.setText(R.string.bluetooth);
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) {
+            row(R.drawable.ic_bluetooth, home.getString(R.string.not_available), null, "none", false, null);
+            return;
+        }
+        Runnable refresh = bluetoothRefresh();
+        try {
+            startBluetoothSession(adapter, refresh, true);
+            listRows(home.bluetoothRows(adapter, refresh, this::dismiss, d -> push(BT_DEVICE + d.getAddress())));
+        } catch (SecurityException e) {
+            // Without the nearby-devices permission the system page can still do all of it.
+            dismiss();
+            home.startActivity(new android.content.Intent(Settings.ACTION_BLUETOOTH_SETTINGS)
+                    .addFlags(android.content.Intent.FLAG_ACTIVITY_NEW_TASK));
+        }
+    }
+
+    /** Redraws the Bluetooth page or a device's page as devices are found, pair, connect and go. */
+    private Runnable bluetoothRefresh() {
+        return () -> {
+            if (isShowing() && (BLUETOOTH.equals(stack.peek()) || stack.peek().startsWith(BT_DEVICE))) render(null);
+        };
+    }
+
+    private void startBluetoothSession(BluetoothAdapter adapter, Runnable refresh, boolean search) {
+        if (bluetoothOn) return;
+        bluetoothOn = true;
+        home.startBluetooth(adapter, refresh);
+        if (search && adapter.isEnabled()) adapter.startDiscovery();
+    }
+
+    /** True once Forget was pressed once on the device page; a second press forgets. */
+    private boolean forgetArmed;
+
+    /** One paired device: whether it is connected, connect or disconnect it, or forget it. All in the launcher. */
+    private void btDevicePage(String address) {
+        android.bluetooth.BluetoothDevice device = home.pairedDevice(address);
+        if (device == null) {   // forgotten meanwhile
+            back();
+            return;
+        }
+        title.setText(MainActivity.nameOf(device));
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        startBluetoothSession(adapter, bluetoothRefresh(), false);
+        boolean connected = MainActivity.isConnected(device);
+        row(R.drawable.ic_bluetooth, home.getString(R.string.bt_status),
+                home.getString(connected ? R.string.connected : R.string.bt_not_connected), "status", false, null);
+        row(connected ? R.drawable.ic_hide : R.drawable.ic_check, home.getString(connected ? R.string.bt_disconnect
+                : R.string.bt_connect), null, "connect", false, () -> {
+            boolean ok = connected ? home.disconnectBluetooth(device) : home.connectPaired(device);
+            if (!ok) Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+            handler.postDelayed(() -> {
+                if (isShowing() && (BT_DEVICE + address).equals(stack.peek())) render("connect");
+            }, 2500);
+        });
+        row(R.drawable.ic_hide, home.getString(forgetArmed ? R.string.bt_forget_sure : R.string.bt_forget), null, "forget",
+                false, () -> {
+                    if (!forgetArmed) {
+                        forgetArmed = true;
+                        render("forget");
+                        return;
+                    }
+                    forgetArmed = false;
+                    if (MainActivity.forgetBluetooth(device)) {
+                        Toast.makeText(home, home.getString(R.string.bt_forgotten, MainActivity.nameOf(device)),
+                                Toast.LENGTH_SHORT).show();
+                        handler.postDelayed(this::back, 600);
+                    } else {
+                        Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+                    }
+                });
+        header(home.getString(R.string.bt_details));
+        row(R.drawable.ic_info, home.getString(R.string.bt_address), address, "address", false, null);
+    }
+
+    private void stopBluetooth() {
+        if (!bluetoothOn) return;
+        bluetoothOn = false;
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter != null) home.closeBluetooth(adapter);
+    }
+
+    /** MainActivity's list rows as this sheet's: headers, a little space for a separator, and the rows. */
+    private void listRows(List<MainActivity.ListRow> list) {
+        for (MainActivity.ListRow item : list) {
+            if (item == MainActivity.ListRow.SEPARATOR) {
+                rows.addView(new View(home), new LinearLayout.LayoutParams(1, (int) (10 * density)));
+            } else if (item.action == null) {
+                header(item.title);
+            } else {
+                row(item.icon, item.title, item.status, item.key, false, () -> {
+                    if (item.closes) dismiss();
+                    item.action.run();
+                });
+            }
+        }
     }
 
     // ---- Account ------------------------------------------------------------------------------------------
@@ -457,35 +767,177 @@ final class SettingsSheet {
         row(R.drawable.ic_tune, home.getString(R.string.theme_customise, now.title(home)), null, "customise", true,
                 () -> push(THEME + now.id));
         header(home.getString(R.string.themes));
-        List<Themes.Theme> all = Themes.all(home);
         boolean mineHeader = false;
-        for (Themes.Theme t : all) {
-            if (t.image != null && !mineHeader) {
+        for (Themes.Theme t : Themes.all(home)) {
+            if (t.mine() && !mineHeader) {
                 header(home.getString(R.string.theme_yours));
                 mineHeader = true;
             }
             themeRow(t, t.id.equals(now.id));
         }
-        List<File> found = Themes.onDrives(home);
         header(home.getString(R.string.theme_add));
-        for (File f : found) {
-            View row = row(R.drawable.ic_picture, f.getName(), home.getString(R.string.theme_add_one), "add:" + f.getName(), false, () -> {
-                Toast.makeText(home, R.string.theme_adding, Toast.LENGTH_SHORT).show();
-                Executors.newSingleThreadExecutor().execute(() -> {
-                    Themes.Theme added = Themes.importImage(home, f);
-                    handler.post(() -> {
-                        if (added == null) {
-                            Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
-                            return;
-                        }
-                        home.applyTheme(added.id);
-                        render("theme:" + added.id);
-                    });
-                });
-            });
-            row.setTag("add:" + f.getName());
+        row(R.drawable.ic_wifi, home.getString(R.string.theme_from_phone), null, UPLOAD, true, () -> push(UPLOAD));
+        row(R.drawable.ic_picture, home.getString(R.string.theme_on_tv), null, FOUND, true, () -> push(FOUND));
+    }
+
+    // ---- photos of your own ---------------------------------------------------------------------------------
+
+    /** Decodes photo thumbnails off the main thread, one at a time. */
+    private final java.util.concurrent.ExecutorService thumbs = Executors.newSingleThreadExecutor();
+
+    /**
+     * Shows a photo's thumbnail in a row's icon, 16:9 with rounded corners like the theme previews; decoded in the
+     * background and kept, so scrolling the list back does not decode it again.
+     */
+    private void photoIcon(View row, File photo, Themes.Theme theme) {
+        ImageView icon = row.findViewById(R.id.icon);
+        icon.setVisibility(View.VISIBLE);
+        icon.setImageTintList((ColorStateList) null);
+        icon.setScaleType(ImageView.ScaleType.CENTER_CROP);
+        ViewGroup.LayoutParams lp = icon.getLayoutParams();
+        lp.width = (int) (44 * density);
+        lp.height = (int) (25 * density);
+        icon.setLayoutParams(lp);
+        icon.setOutlineProvider(new android.view.ViewOutlineProvider() {
+            @Override public void getOutline(View view, android.graphics.Outline outline) {
+                outline.setRoundRect(0, 0, view.getWidth(), view.getHeight(), 6 * density);
+            }
+        });
+        icon.setClipToOutline(true);
+        String key = "thumb:" + photo.getAbsolutePath() + (theme == null ? "" : Themes.paintKey(home, theme));
+        android.graphics.Bitmap cached = previews.get(key);
+        if (cached != null) {
+            icon.setImageBitmap(cached);
+            return;
         }
+        icon.setImageDrawable(null);
+        icon.setBackgroundColor(0x33FFFFFF);
+        thumbs.execute(() -> {
+            android.graphics.Bitmap b = theme != null ? Themes.render(home, theme, 88, 50) : Themes.thumbnail(photo, 88, 50);
+            if (b == null) return;
+            handler.post(() -> {
+                previews.put(key, b);
+                if (!icon.isAttachedToWindow()) return;
+                icon.setBackground(null);
+                icon.setImageBitmap(b);
+            });
+        });
+    }
+
+    /** A photo becomes a theme: it is copied in, put on, and its page opens to choose its clock and tiles. */
+    private void addPhoto(File photo) {
+        Toast.makeText(home, R.string.theme_adding, Toast.LENGTH_SHORT).show();
+        Executors.newSingleThreadExecutor().execute(() -> {
+            Themes.Theme added = Themes.importImage(home, photo);
+            handler.post(() -> {
+                if (added == null) {
+                    Toast.makeText(home, R.string.not_available, Toast.LENGTH_SHORT).show();
+                    return;
+                }
+                openPhotoTheme(added);
+            });
+        });
+    }
+
+    private void openPhotoTheme(Themes.Theme theme) {
+        home.applyTheme(theme.id);
+        if (!isShowing()) return;
+        stack.push(THEME + theme.id);
+        render(null);
+    }
+
+    /** Photos found on the TV and on USB drives, newest first; OK on one makes it a theme. */
+    private void foundPage() {
+        title.setText(R.string.theme_on_tv);
+        List<File> found = Themes.onDrives(home);
+        if (found.isEmpty()) row(R.drawable.ic_info, home.getString(R.string.theme_none_found), null, "none", false, null);
+        for (File f : found) {
+            String folder = f.getParentFile() == null ? null : f.getParentFile().getName();
+            View row = row(R.drawable.ic_picture, f.getName(), folder, "add:" + f.getAbsolutePath(), false, () -> addPhoto(f));
+            photoIcon(row, f, null);
+        }
+        header("");
         row(R.drawable.ic_info, home.getString(R.string.theme_how), null, "how", false, null);
+    }
+
+    /** The phone upload, while its page is open; null otherwise. */
+    private PhotoUpload upload;
+    /** Photos the phone sent while this sheet was around, newest first. */
+    private final List<File> received = new ArrayList<>();
+
+    /** The address and its QR code for the phone, and each photo as it arrives, ready to be put on. */
+    private void uploadPage() {
+        title.setText(R.string.theme_from_phone);
+        String address = PhotoUpload.address();
+        if (address == null) {
+            row(R.drawable.ic_wifi, home.getString(R.string.upload_offline), null, "offline", false, null);
+            return;
+        }
+        if (upload == null) {
+            upload = new PhotoUpload(new File(home.getFilesDir(), Themes.MY_THEMES), photo -> {
+                received.add(0, photo);
+                Toast.makeText(home, home.getString(R.string.upload_added, photo.getName()), Toast.LENGTH_SHORT).show();
+                if (isShowing() && UPLOAD.equals(stack.peek())) render(null);
+            });
+            if (!upload.start()) {
+                upload = null;
+                row(R.drawable.ic_info, home.getString(R.string.not_available), null, "failed", false, null);
+                return;
+            }
+        }
+        LinearLayout card = new LinearLayout(home);
+        card.setOrientation(LinearLayout.HORIZONTAL);
+        card.setGravity(Gravity.CENTER_VERTICAL);
+        int pad = (int) (12 * density);
+        card.setPadding(pad, pad, pad, pad);
+        QrCode qr = QrCode.encode(address);
+        if (qr != null) {
+            ImageView code = new ImageView(home);
+            code.setImageBitmap(qr.bitmap(4));
+            code.setScaleType(ImageView.ScaleType.FIT_CENTER);
+            android.graphics.drawable.GradientDrawable white = new android.graphics.drawable.GradientDrawable();
+            white.setColor(0xFFFFFFFF);
+            white.setCornerRadius(12 * density);
+            code.setBackground(white);
+            int p = (int) (6 * density);
+            code.setPadding(p, p, p, p);
+            int side = (int) (128 * density);
+            card.addView(code, new LinearLayout.LayoutParams(side, side));
+        }
+        LinearLayout words = new LinearLayout(home);
+        words.setOrientation(LinearLayout.VERTICAL);
+        TextView link = new TextView(home);
+        link.setText(address.replace("http://", ""));
+        link.setTextColor(0xFFFFFFFF);
+        link.setTextSize(TypedValue.COMPLEX_UNIT_SP, 17);
+        link.setTypeface(UiFont.get(home, R.string.font_medium));
+        TextView how = new TextView(home);
+        how.setText(R.string.upload_how);
+        how.setTextColor(0xB3FFFFFF);
+        how.setTextSize(TypedValue.COMPLEX_UNIT_SP, 13);
+        how.setPadding(0, (int) (6 * density), 0, 0);
+        words.addView(link);
+        words.addView(how);
+        LinearLayout.LayoutParams wl = new LinearLayout.LayoutParams(0, ViewGroup.LayoutParams.WRAP_CONTENT, 1f);
+        wl.setMarginStart((int) (16 * density));
+        card.addView(words, wl);
+        rows.addView(card);
+        header(home.getString(R.string.upload_received));
+        received.removeIf(f -> !f.isFile());   // a photo removed from its theme page leaves the list too
+        if (received.isEmpty()) {
+            row(R.drawable.ic_picture, home.getString(R.string.upload_waiting), null, "waiting", false, null);
+        }
+        for (File f : received) {
+            Themes.Theme t = Themes.find(home, Themes.IMAGE + f.getAbsolutePath());
+            View row = row(R.drawable.ic_picture, t.title(home), null, "got:" + f.getName(), true, () -> openPhotoTheme(t));
+            photoIcon(row, f, t);
+        }
+    }
+
+    private void stopUpload() {
+        if (upload == null) return;
+        upload.stop();
+        upload = null;
     }
 
     private void themeRow(Themes.Theme t, boolean current) {
@@ -498,6 +950,15 @@ final class SettingsSheet {
             if (event.getAction() == KeyEvent.ACTION_UP) push(THEME + t.id);
             return true;
         });
+        if (t.image != null) {
+            photoIcon(row, t.image, t);   // a photo takes a moment to decode: in the background
+            return;
+        }
+        if (t.slides()) {
+            Themes.Theme slide = Themes.currentSlide(home);
+            if (slide != null) photoIcon(row, slide.image, slide);
+            return;
+        }
         android.graphics.Bitmap preview = previews.get(t.id + Themes.patternChoice(home, t) + Themes.brightnessChoice(home, t));
         if (preview == null) {
             preview = Themes.render(home, t, 80, 45);
@@ -534,17 +995,79 @@ final class SettingsSheet {
             previews.clear();
             if (t.id.equals(Themes.current(home).id)) home.applyTheme(t.id);
         };
+        row(R.drawable.ic_tune, home.getString(R.string.theme_name), t.title(home), "name", true, () -> push(RENAME + t.id));
+        if (t.slides()) {
+            String[] every = new String[Themes.SLIDE_MINUTES.length];
+            for (int i = 0; i < every.length; i++) {
+                int m = Themes.SLIDE_MINUTES[i];
+                every[i] = m >= 60 ? home.getString(R.string.theme_slides_hour) : home.getString(R.string.theme_slides_min, m);
+            }
+            listRow(R.drawable.ic_picture, home.getString(R.string.theme_slides_every), every, null,
+                    Themes.slideMinutesChoice(home), "every", i -> {
+                        Themes.setSlideMinutes(home, i);
+                        if (t.id.equals(Themes.current(home).id)) home.scheduleSlide(t);
+                    }, null);
+            row(R.drawable.ic_swap_vert, home.getString(R.string.theme_slides_next), null, "next", false, () -> {
+                Themes.nextSlide(home);
+                if (t.id.equals(Themes.current(home).id)) home.applyTheme(t.id);
+                previews.clear();
+            });
+        }
         cycleRow(R.drawable.ic_gloss, R.string.theme_accent, Themes.ACCENT_NAMES, Themes.accentChoice(home, t), "accent", i -> {
             Themes.setChoice(home, t, "accent", i);
             home.refreshAccent();
         });
+        // Its look: each theme keeps its own clock and tiles, and they change with it.
+        Runnable relook = () -> {
+            if (t.id.equals(Themes.current(home).id)) {
+                home.applyClock();
+                home.applyTiles();
+            }
+        };
+        cycleRow(R.drawable.ic_clock, R.string.theme_clock_style, Clock.STYLE_NAMES, Clock.style(home, t), "clockstyle", i -> {
+            Clock.setStyle(home, t, i);
+            relook.run();
+        });
+        cycleRow(R.drawable.ic_swap_vert, R.string.theme_clock_place, Clock.PLACE_NAMES, Clock.place(home, t), "clockplace", i -> {
+            Clock.setPlace(home, t, i);
+            relook.run();
+        });
+        cycleRow(R.drawable.ic_apps, R.string.theme_tiles, Themes.TILE_NAMES, Themes.tilesChoice(home, t), "tiles", i -> {
+            Themes.setChoice(home, t, "tiles", i);
+            relook.run();
+        });
+        if (t.mine()) {
+            cycleRow(R.drawable.ic_gloss, R.string.theme_icons, Themes.ICON_NAMES, Themes.iconsChoice(home, t), "icons", i -> {
+                Themes.setChoice(home, t, "icons", i);
+                home.refreshAccent();
+            });
+        }
+        if (t.image != null) {
+            // How the photo meets the screen: the whole photo or filling it, which part, and how close.
+            header(home.getString(R.string.photo_fit_title));
+            cycleRow(R.drawable.ic_picture, R.string.photo_fit, Themes.FIT_NAMES, Themes.fitChoice(home, t), "fit", i -> {
+                Themes.setChoice(home, t, "fit", i);
+                redraw.run();
+            });
+            cycleRow(R.drawable.ic_swap_vert, R.string.photo_pos, Themes.POSITION_NAMES, Themes.positionChoice(home, t), "pos", i -> {
+                Themes.setChoice(home, t, "pos", i);
+                redraw.run();
+            });
+            cycleRow(R.drawable.ic_tune, R.string.photo_zoom, Themes.ZOOM_NAMES, Themes.zoomChoice(home, t), "zoom", i -> {
+                Themes.setChoice(home, t, "zoom", i);
+                redraw.run();
+            });
+        }
         if (t.image == null && !t.photos()) {
             cycleRow(R.drawable.ic_themes, R.string.theme_pattern, Themes.PATTERN_NAMES, Themes.patternChoice(home, t), "pattern", i -> {
                 Themes.setChoice(home, t, "pattern", i);
                 redraw.run();
             });
         }
-        if (!t.photos()) {
+        if (t.slides()) {
+            row(R.drawable.ic_info, home.getString(R.string.theme_slides_how), null, "how", false, null);
+        }
+        if (!t.photos() && !t.slides()) {
             cycleRow(R.drawable.ic_info, R.string.theme_brightness, Themes.BRIGHTNESS_NAMES, Themes.brightnessChoice(home, t), "bright", i -> {
                 Themes.setChoice(home, t, "bright", i);
                 redraw.run();
@@ -556,6 +1079,9 @@ final class SettingsSheet {
             row(0, home.getString(R.string.theme_remove), null, "remove", false, () -> {
                 if (current) home.applyTheme(Themes.TVOS);
                 Themes.removeImage(home, t);
+                previews.clear();
+                // The slideshow may be on this photo: on to one that is still there, or back to TvOS without any.
+                if (Themes.current(home).slides()) home.applyTheme(Themes.myImages(home).isEmpty() ? Themes.TVOS : Themes.SLIDES);
                 back();
             });
         }
@@ -902,7 +1428,9 @@ final class SettingsSheet {
     }
 
     private void controlRow(String key, List<String> onHome) {
-        String value = onHome.contains(key) ? home.getString(R.string.set_on_home) : null;
+        boolean inCc = Controls.controlCenter(home).contains(key);
+        String value = inCc && !Controls.GLOSS.equals(key) ? home.getString(Controls.SIZE_NAMES[Controls.size(home, key)])
+                : onHome.contains(key) ? home.getString(R.string.set_on_home) : null;
         row(Controls.icon(key), home.getString(Controls.label(key)), value, CONTROL + key, true, () -> push(CONTROL + key));
     }
 
@@ -926,6 +1454,10 @@ final class SettingsSheet {
                 render("home");
             });
             stepper(pill, pill::performClick, pill::performClick);
+        }
+        if (inCc && !Controls.GLOSS.equals(key)) {
+            cycleRow(R.drawable.ic_apps, R.string.cc_size, Controls.SIZE_NAMES, Controls.size(home, key), "size",
+                    i -> Controls.setSize(home, key, i));
         }
         if (inCc) {
             header(home.getString(R.string.set_position));
@@ -1217,19 +1749,6 @@ final class SettingsSheet {
         stepper(volume, step[0], step[1]);
         volume.setOnClickListener(v -> step[1].run());
 
-        boolean canWrite = Settings.System.canWrite(home);
-        choiceRow(R.drawable.ic_sleep, R.string.set_screensaver, "screensaver", SCREENSAVER_MS,
-                Settings.System.getInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, 300_000),
-                ms -> canWrite && Settings.System.putInt(home.getContentResolver(), Settings.System.SCREEN_OFF_TIMEOUT, ms));
-        choiceRow(R.drawable.ic_power, R.string.set_sleep, "sleep", SLEEP_MS,
-                Settings.Secure.getInt(home.getContentResolver(), "sleep_timeout", -1),
-                ms -> {
-                    try {
-                        return Settings.Secure.putInt(home.getContentResolver(), "sleep_timeout", ms);
-                    } catch (SecurityException e) {
-                        return false;
-                    }
-                });
         // The launcher's own sounds, apart from Android's "Sound effects" (which Xiaomi firmware turns off by itself).
         View sounds = row(R.drawable.ic_gloss, home.getString(R.string.set_sound_effects),
                 home.getString(TvSounds.enabled(home) ? R.string.bt_on : R.string.bt_off), "effects", false, () -> {
@@ -1238,8 +1757,8 @@ final class SettingsSheet {
                 });
         stepper(sounds, sounds::performClick, sounds::performClick);
         header(home.getString(R.string.set_more));
-        // Picture modes and brightness belong to the TV maker's own settings; no app can reach them.
-        externalRow(R.drawable.ic_picture, home.getString(R.string.set_picture), home.systemIntent(Settings.ACTION_DISPLAY_SETTINGS));
+        // Picture modes and brightness belong to the TV maker's own settings (Xiaomi's is droidlogic's); no app can reach them.
+        androidRow(DeviceSettings.PICTURE);
     }
 
     interface Apply {

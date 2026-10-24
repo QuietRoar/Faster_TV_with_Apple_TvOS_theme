@@ -111,8 +111,15 @@ final class TvSounds {
         pool.play(ids[pack][kind], v, v, 1, 0, 1f);
     }
 
+    /** True while a list is rebuilt in place: focus moving to its new rows is not the owner moving. */
+    private static boolean hushed;
+
+    static void hush(boolean on) {
+        hushed = on;
+    }
+
     static void move() {
-        if (active()) play(0, 0.8f);
+        if (active() && !hushed) play(0, 0.8f);
     }
 
     static void select() {
@@ -187,10 +194,11 @@ final class TvSounds {
      * handling nor its focus listener hear what happens in it.
      */
     static View wrap(View content) {
-        if (!active()) return content;
+        // Always wrapped: the popup's OK press squeezes the focused control even with the sounds off.
         FrameLayout frame = new FrameLayout(content.getContext()) {
             @Override public boolean dispatchKeyEvent(KeyEvent event) {
                 onKey(event);
+                Motion.press(event, findFocus());
                 return super.dispatchKeyEvent(event);
             }
         };

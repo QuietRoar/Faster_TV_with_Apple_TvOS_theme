@@ -1,5 +1,9 @@
 package com.gathin.tvhome;
 
+import android.view.KeyEvent;
+import android.view.View;
+import android.view.animation.OvershootInterpolator;
+
 import androidx.dynamicanimation.animation.SpringAnimation;
 import androidx.dynamicanimation.animation.SpringForce;
 
@@ -14,6 +18,28 @@ final class Motion {
     static final float REDUCED_MIN_CHANGE = 2f;
 
     private Motion() {
+    }
+
+    /**
+     * tvos_style's press: OK held down squeezes the focused control a little (about 6 dp at most, so a wide row
+     * barely moves and a tile goes to 96%), and letting go springs it back to the size its focus gave it.
+     */
+    static void press(KeyEvent event, View view) {
+        int code = event.getKeyCode();
+        if (view == null || (code != KeyEvent.KEYCODE_DPAD_CENTER && code != KeyEvent.KEYCODE_ENTER
+                && code != KeyEvent.KEYCODE_NUMPAD_ENTER)) return;
+        Object rest = view.getTag(R.id.press_scale);
+        if (event.getAction() == KeyEvent.ACTION_DOWN) {
+            if (event.getRepeatCount() > 0 || rest != null || view.getWidth() == 0) return;
+            float base = view.getScaleX();
+            view.setTag(R.id.press_scale, base);
+            float f = Math.max(0.96f, 1f - 12f * view.getResources().getDisplayMetrics().density / view.getWidth());
+            view.animate().scaleX(base * f).scaleY(base * f).setDuration(80).setInterpolator(null).start();
+        } else if (event.getAction() == KeyEvent.ACTION_UP && rest != null) {
+            view.setTag(R.id.press_scale, null);
+            view.animate().scaleX((Float) rest).scaleY((Float) rest).setDuration(220)
+                    .setInterpolator(new OvershootInterpolator(2f)).start();
+        }
     }
 
     static void reduce(SpringAnimation spring) {

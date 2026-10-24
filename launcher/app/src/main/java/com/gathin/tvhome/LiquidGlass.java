@@ -286,6 +286,11 @@ final class LiquidGlass {
         private final RectF rect = new RectF();
         private final Paint white = new Paint(Paint.ANTI_ALIAS_FLAG);
         private boolean focused;
+        /** How white the focus has made it, 0 to 1: it fades in and out instead of snapping. */
+        private float lit;
+        private android.animation.ValueAnimator fade;
+        /** Only the focus light: the glass under it is a capsule shared with its neighbours. */
+        private boolean bare;
 
         Background(View host, float radius, int tintArgb, boolean focusWhite) {
             this.host = host;
@@ -294,6 +299,12 @@ final class LiquidGlass {
             this.focusWhite = focusWhite;
             white.setColor(0xF5FFFFFF);
             register(host);
+        }
+
+        /** Draws only the focus light, for a button sitting in a shared glass capsule. */
+        Background bare() {
+            bare = true;
+            return this;
         }
 
         /** A lighter or darker glass, e.g. light glass for a dark icon over a bright sky. */
@@ -311,12 +322,25 @@ final class LiquidGlass {
         @Override public void draw(@NonNull Canvas canvas) {
             rect.set(getBounds());
             float r = radius();
-            if (focusWhite && focused) {
-                canvas.drawRoundRect(rect, r, r, white);
-                return;
+            if (lit < 1f && !bare) {
+                host.getLocationOnScreen(at);
+                LiquidGlass.draw(canvas, rect, r, at[0], at[1], host.getResources().getDisplayMetrics(), tintArgb);
             }
-            host.getLocationOnScreen(at);
-            LiquidGlass.draw(canvas, rect, r, at[0], at[1], host.getResources().getDisplayMetrics(), tintArgb);
+            if (lit > 0f) {
+                white.setAlpha(Math.round(0xF5 * lit));
+                canvas.drawRoundRect(rect, r, r, white);
+            }
+        }
+
+        /** The focus light comes on in 140 ms and goes off in 100 ms, so it seems to travel between buttons. */
+        private void fadeTo(float target) {
+            if (fade != null) fade.cancel();
+            fade = android.animation.ValueAnimator.ofFloat(lit, target).setDuration(target > lit ? 140 : 100);
+            fade.addUpdateListener(a -> {
+                lit = (float) a.getAnimatedValue();
+                invalidateSelf();
+            });
+            fade.start();
         }
 
         @Override public boolean isStateful() {
@@ -328,7 +352,7 @@ final class LiquidGlass {
             for (int s : state) if (s == android.R.attr.state_focused) now = true;
             if (now == focused) return false;
             focused = now;
-            invalidateSelf();
+            if (focusWhite) fadeTo(now ? 1f : 0f);
             return true;
         }
 

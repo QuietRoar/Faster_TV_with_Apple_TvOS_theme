@@ -50,6 +50,8 @@ final class WallpaperPlayer {
     private boolean active;
     private boolean closed;
     private boolean loading;
+    /** tvos_style under a painted theme: nothing is decoded or kept, since the theme covers the whole screen. */
+    private boolean held;
     private String displayed = "";
     /** wallpaper_captions: the shown picture's name from wallpapers/captions.txt; null when off or there are none. */
     private final TextView caption;
@@ -61,8 +63,9 @@ final class WallpaperPlayer {
     private LocalDate sunDay;
     private int[] sun;
 
-    WallpaperPlayer(Context context, FrameLayout root, Config config) {
+    WallpaperPlayer(Context context, FrameLayout root, Config config, boolean held) {
         this.root = root;
+        this.held = held;
         files = new ArrayList<>(config.wallpapers);
         interval = config.wallpaperRotationMinutes * 60_000L;
         bitmapConfig = config.wallpaperTrueColor ? Bitmap.Config.ARGB_8888 : Bitmap.Config.RGB_565;
@@ -92,6 +95,21 @@ final class WallpaperPlayer {
         if (config.wallpaperEnabled && !files.isEmpty()) {
             root.addView(image, 0, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            if (!held) showFirst();
+        }
+    }
+
+    /**
+     * Holds the slideshow while a painted theme covers it (its picture is let go, about 4 MB at 1080p), or brings
+     * it back at once, on the main thread like the first picture, so the theme fades out over it.
+     */
+    void setHeld(boolean hold) {
+        if (hold == held) return;
+        held = hold;
+        if (hold) {
+            image.setImageDrawable(null);
+            displayed = "";
+        } else if (image.getParent() != null && !files.isEmpty()) {
             showFirst();
         }
     }
@@ -153,7 +171,7 @@ final class WallpaperPlayer {
     }
 
     void update() {
-        if (!active || closed || loading || files.isEmpty()) return;
+        if (!active || held || closed || loading || files.isEmpty()) return;
         String previous = preferences.getString("image", "");
         // A picture outside the time of day's group (the group changed) is replaced at once, not after the interval.
         List<File> playable = playable();

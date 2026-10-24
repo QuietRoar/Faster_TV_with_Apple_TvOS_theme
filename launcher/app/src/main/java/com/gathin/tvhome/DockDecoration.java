@@ -115,9 +115,10 @@ public class DockDecoration extends RecyclerView.ItemDecoration {
             rect.inset(-even, -even);
             radius = radiusPx(radius, even);
         } else {
-            // dock_even_padding off: the band as before, with its fixed 26 dp corners.
+            // dock_even_padding off: the band as before, with its fixed 26 dp corners; tvos_style's glass band is
+            // concentric with the tiles instead (their radius plus the 14 dp above and below them).
             rect.inset(-side, -pad);
-            radius = 26 * density;
+            radius = LiquidGlass.enabled ? radius + pad : 26 * density;
         }
         rect.bottom += namesRoom;
         if (lightGlass && (rect.top != shaderTop || rect.bottom != shaderBottom)) {

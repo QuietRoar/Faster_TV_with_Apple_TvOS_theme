@@ -1,0 +1,3 @@
+<?xml version="1.0" encoding="utf-8"?>
+<!-- tvos_style's Apple TV style keyboard (TvKeyboard): one keyboard for every language, no settings screen. -->
+<input-method xmlns:android="http://schemas.android.com/apk/res/android" />

@@ -9,6 +9,8 @@
     <uses-feature android:name="android.hardware.location.gps" android:required="false" />
 
     <uses-permission android:name="android.permission.ACCESS_NETWORK_STATE" />
+    <!-- tvos_style's "Add from your phone": a page on the home network, open only while that Settings page is. -->
+    <uses-permission android:name="android.permission.INTERNET" />
     <uses-permission android:name="android.permission.ACCESS_WIFI_STATE" />
     <!-- tvos_style's Settings sheet: Wi-Fi on/off and connecting, the screensaver and sleep times and sound effects
          (WRITE_SETTINGS, allowed by the install script), app sizes (usage access, likewise), and an app's Uninstall. -->
@@ -181,6 +183,20 @@
 
         <!-- Screensaver: pick it in Settings, or `settings put secure screensaver_components
              com.gathin.tvhome/.ClockDream` over adb. -->
+        <!-- tvos_style's Apple TV style keyboard: a keyboard like any other, chosen in Settings, Keyboard. -->
+        <service
+            android:name=".TvKeyboard"
+            android:label="@string/kb_name"
+            android:exported="true"
+            android:permission="android.permission.BIND_INPUT_METHOD">
+            <intent-filter>
+                <action android:name="android.view.InputMethod" />
+            </intent-filter>
+            <meta-data
+                android:name="android.view.im"
+                android:resource="@xml/tv_keyboard" />
+        </service>
+
         <service
             android:name=".ClockDream"
             android:label="@string/dream_name"
@@ -228,6 +244,21 @@
             <meta-data
                 android:name="android.accessibilityservice"
                 android:resource="@xml/volume_service" />
+        </service>
+
+        <!-- tvos_style's pairing helper: covers Android's pairing window with the launcher's own card and answers it
+             for a pairing started from the launcher; it sees TV Settings only. See PairingHelper. -->
+        <service
+            android:name=".PairingHelper"
+            android:exported="false"
+            android:label="@string/pair_service_name"
+            android:permission="android.permission.BIND_ACCESSIBILITY_SERVICE">
+            <intent-filter>
+                <action android:name="android.accessibilityservice.AccessibilityService" />
+            </intent-filter>
+            <meta-data
+                android:name="android.accessibilityservice"
+                android:resource="@xml/pairing_service" />
         </service>
     </application>
 </manifest>
