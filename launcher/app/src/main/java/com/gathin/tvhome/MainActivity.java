@@ -551,7 +551,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     AnimationUtils.loadAnimation(this, R.anim.tile_enter), 0.06f));
         }
         AppAdapter.tilt = LiquidGlass.enabled;
-        AppAdapter.motion = !Comfort.lite(this);
         adapter = new AppAdapter(this, this, COLUMNS, cfg);
         dockApps = cfg.dockApps;
         fillDockLeavesSlots = !cfg.fillDock;
@@ -1719,7 +1718,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (frost != null) {
             float target = dockRow && position < COLUMNS ? 0f : 1f;
             if (frost.getAlpha() != target) {
-                frost.animate().alpha(target).setDuration(reducedMotion || !AppAdapter.motion ? 0 : 380).start();
+                frost.animate().alpha(target).setDuration(reducedMotion ? 0 : 380).start();
             }
             if (frostOn != (target > 0f)) {
                 frostOn = target > 0f;
@@ -3845,7 +3844,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         return states;
     }
 
-    // ---- night: the night clock, Night mode, and Lite mode --------------------------------------------------
+    // ---- night: the night clock and Night mode ---------------------------------------------------------------
 
     private View nightDim;
     private TextClock nightClock;
@@ -3901,19 +3900,12 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             Comfort.setNightMode(this, false, 0);
             if (before >= 0) audio.setStreamVolume(stream, before, 0);
             if (hasTimer) open(timer.putExtra("minutes", 0));
-            TvSounds.init(this);   // back on, unless their switch is off or Lite mode is on
+            TvSounds.init(this);   // back on, unless their switch is off
             Toast.makeText(this, R.string.night_off, Toast.LENGTH_SHORT).show();
         }
         updateNight();
         // The timer's state comes from the add-on a moment later.
         root.postDelayed(this::refreshHomePills, 600);
-    }
-
-    /** Lite mode: no tilt, light sweep, launch zoom, fades or sounds; Home rebuilds with it at once. */
-    void setLite(boolean on) {
-        Comfort.setLite(this, on);
-        if (on) TvSounds.setEnabled(this, false);
-        recreate();
     }
 
     // ---- the clock -----------------------------------------------------------------------------------------
@@ -4104,7 +4096,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         card.setTranslationY(-14 * density);
         card.animate().alpha(1f).translationY(0f).setDuration(reducedMotion ? Motion.REDUCED_MS : 520)
                 .setInterpolator(new android.view.animation.DecelerateInterpolator(2f)).start();
-        if (!reducedMotion && AppAdapter.motion) {
+        if (!reducedMotion) {
             emoji.post(() -> {
                 android.animation.ObjectAnimator move;
                 if ("wave".equals(Welcome.EMOJI[emojiIndex])) {

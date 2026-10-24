@@ -6,7 +6,7 @@ import android.content.SharedPreferences;
 import java.util.Calendar;
 
 /**
- * tvos_style's comfort choices: Lite mode (no tilt, light sweep, launch zoom, fades or sounds), the night clock
+ * tvos_style's comfort choices: the night clock
  * and its hours, one-tap Night mode, and clearing background apps when the TV goes to standby.
  */
 final class Comfort {
@@ -18,14 +18,6 @@ final class Comfort {
 
     private static SharedPreferences prefs(Context ctx) {
         return ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE);
-    }
-
-    static boolean lite(Context ctx) {
-        return prefs(ctx).getBoolean("lite", false);
-    }
-
-    static void setLite(Context ctx, boolean on) {
-        prefs(ctx).edit().putBoolean("lite", on).apply();
     }
 
     static boolean nightClock(Context ctx) {

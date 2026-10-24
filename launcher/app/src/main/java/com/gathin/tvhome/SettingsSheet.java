@@ -360,12 +360,6 @@ final class SettingsSheet {
                     render("night");
                 });
         stepper(night, night::performClick, night::performClick);
-        View lite = row(R.drawable.ic_boost, home.getString(R.string.lite_mode),
-                home.getString(Comfort.lite(home) ? R.string.bt_on : R.string.bt_off), "lite", false, () -> {
-                    dismiss();
-                    home.setLite(!Comfort.lite(home));
-                });
-        stepper(lite, lite::performClick, lite::performClick);
         row(R.drawable.ic_boost, home.getString(R.string.boost), null, MEMORY, true, () -> {
             boostRequested = true;
             push(MEMORY);
@@ -812,7 +806,7 @@ final class SettingsSheet {
                 });
         stepper(goodbye, goodbye::performClick, goodbye::performClick);
         row(R.drawable.ic_info, home.getString(R.string.snd_goodbye_hint), null, "goodbyehint", false, null);
-        if (TvSounds.enabled(home) && (Comfort.lite(home) || Comfort.nightMode(home))) {
+        if (TvSounds.enabled(home) && Comfort.nightMode(home)) {
             row(R.drawable.ic_info, home.getString(R.string.snd_off_hint), null, "hint", false, null);
         }
     }

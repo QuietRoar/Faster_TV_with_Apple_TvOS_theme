@@ -53,8 +53,6 @@ import java.util.Set;
 public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
     /** tvos_style: focused tiles tilt in from the direction focus moved (set before the adapter is made). */
     static boolean tilt;
-    /** tvos_style without Lite mode: the tilt, the light sweep and the launch zoom (set before the adapter is made). */
-    static boolean motion = true;
     /** The last arrow key a tile handled, which says which way the tilt leans. */
     private static int lastMoveKey;
     private final Random jiggleRandom = new Random();
@@ -503,7 +501,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             if (ctx.getPackageManager().resolveActivity(byAction, 0) != null) i = byAction;
         }
         try {
-            if (tilt && motion && animations && !reducedMotion && from.getWidth() > 0) {
+            if (tilt && animations && !reducedMotion && from.getWidth() > 0) {
                 // tvOS: the app grows out of its icon.
                 ctx.startActivity(i, ActivityOptions.makeScaleUpAnimation(from, 0, 0, from.getWidth(), from.getHeight()).toBundle());
             } else {
@@ -780,7 +778,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
             card.setOnFocusChangeListener((view, focused) -> {
                 view.animate().cancel();
-                if (tilt && motion && animations && !reducedMotion) {
+                if (tilt && animations && !reducedMotion) {
                     // tvOS parallax with a D-pad: the tile arrives tilted toward the way focus moved and settles flat.
                     float deg = focused ? 9f : 0f;
                     view.setCameraDistance(10000 * density);
@@ -794,7 +792,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 name.animate().cancel();
                 float scale = !animations ? 1f : tilt ? 1.17f : advancedEffects ? 1.12f : 1.10f;
                 boolean lift = focused && (advancedEffects || tilt);
-                if (focused && gloss != null && motion && animations && !reducedMotion) gloss.sweep();
+                if (focused && gloss != null && animations && !reducedMotion) gloss.sweep();
                 float s = focused ? scale : 1f;
                 if (!animations) {
                     view.setScaleX(1f);

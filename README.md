@@ -33,7 +33,6 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 | **Clear background apps** | Ends the background apps (never the launcher, the keyboard, Google services or your remote helpers) and shows the memory freed. |
 | **Clock** | Six styles (Light, Bold, Time and date, Glass pill, Large, and a widget card with a ring that fills through the day), beside the profile picture or left of the symbols. A night clock fills the empty top of Home with a big dim clock during your hours. |
 | **Night mode** | One tap halves the volume, dims the background, silences the click sounds and sets a 60-minute sleep timer; tap again to put it all back. |
-| **Lite mode** | One switch turns off the tilt, light sweep, launch zoom, fades and sounds, for when the TV feels busy. |
 | **Sounds** | Six sound packs (Glass, Pop, Wood, Chime, Crystal, Click) for moving, OK and Back, each previewed as you browse; Soft, Normal or Loud; and very soft welcome and goodbye chimes. Synthesised for this launcher (`launcher/make_sounds.py`). |
 | **Option lists** | Every setting with several choices opens a list of them all, the current one ticked. |
 | **Profile** | Your picture (`profile.jpg` in the theme folder) beside the clock; it opens an account card with your Google account, Themes and Welcome. |
@@ -115,7 +114,7 @@ Python client in `tools/` works around it.
   Settings, Themes; or put them in `themes/liquid-glass/mythemes/` and push the theme.
 - **Control Center and Home symbols:** hold OK (or press Menu) on any control for Show on Home, Remove from
   Control Center and the full list (Settings, Control Center & Home), where you can also reorder them.
-- **Night mode and Lite mode:** rows in Settings; Night mode is also in Control Center and shows a symbol beside
+- **Night mode:** a row in Settings; it is also in Control Center and shows a symbol beside
   the clock while on.
 - **Sounds:** Settings, Sounds. Move through the packs to hear each one.
 - **Clear background apps when the TV sleeps:** Settings, Clear background apps.

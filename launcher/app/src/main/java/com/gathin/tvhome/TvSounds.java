@@ -13,7 +13,7 @@ import android.widget.FrameLayout;
  * tvos_style's own interface sounds in place of Android's click: one as focus moves, one on OK and one on Back,
  * from the chosen pack (res/raw/snd_<pack>_*, synthesised for this launcher by make_sounds.py) at the chosen
  * volume. They have their own switch (Settings, Sounds), apart from Android's "Sound effects", which Xiaomi
- * firmware can turn off by itself; Lite mode and Night mode pause them, and they come back when those end.
+ * firmware can turn off by itself; Night mode pauses them, and they come back when it ends.
  */
 final class TvSounds {
     static final String[] PACKS = {"glass", "pop", "wood", "chime", "crystal", "click"};
@@ -87,9 +87,9 @@ final class TvSounds {
         init(ctx);
     }
 
-    /** Works out whether sounds play now: their switch is on, and neither Lite mode nor Night mode pauses them. */
+    /** Works out whether sounds play now: their switch is on, and Night mode does not pause them. */
     static void init(Context context) {
-        on = enabled(context) && !Comfort.lite(context) && !Comfort.nightMode(context);
+        on = enabled(context) && !Comfort.nightMode(context);
         pack = pack(context);
         volume = volume(context);
         back = backSound(context);
