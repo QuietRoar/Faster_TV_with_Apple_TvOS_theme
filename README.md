@@ -49,7 +49,7 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 |---|---|
 | ![A sunset over the sea between mountains behind the glass top row](docs/tvos/beach.jpg) | ![A mountain lake reflecting the peaks behind the glass top row](docs/tvos/lake.jpg) |
 | Another landscape from the slideshow | And another |
-| ![The Control Center: Power off, Wi-Fi, Inputs, Bluetooth, Sleep timer, round buttons and the Gloss slider](docs/tvos/control-center.jpg) | ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) |
+| ![The Control Center: Power off, Wi-Fi (network name blurred), Inputs, Bluetooth, Sleep timer, Night mode, Clear background apps, round buttons and the Gloss slider](docs/tvos/control-center.jpg) | ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) |
 | Control Center with the Gloss slider | Frosted grid below the top row |
 | ![The Neon theme: a striped synthwave sun over a glowing grid](docs/tvos/theme-neon.jpg) | ![Settings, Themes: each theme with a preview of its pattern](docs/tvos/themes.jpg) |
 | The Neon theme | Themes, with a preview of each pattern |

@@ -12,7 +12,8 @@ import android.widget.FrameLayout;
 /**
  * tvos_style's own interface sounds in place of Android's click: one as focus moves, one on OK and one on Back,
  * from the chosen pack (res/raw/snd_<pack>_*, synthesised for this launcher by make_sounds.py) at the chosen
- * volume. They follow the TV's "Sound effects" setting, read when Home starts, as Android's own clicks do.
+ * volume. They have their own switch (Settings, Sounds), apart from Android's "Sound effects", which Xiaomi
+ * firmware can turn off by itself; Lite mode and Night mode pause them, and they come back when those end.
  */
 final class TvSounds {
     static final String[] PACKS = {"glass", "pop", "wood", "chime", "crystal", "click"};
@@ -76,18 +77,29 @@ final class TvSounds {
         goodbyeId = pool.load(context.getApplicationContext(), R.raw.snd_goodbye, 1);
     }
 
+    /** The launcher's own sounds switch (on unless turned off in Settings, Sounds). */
+    static boolean enabled(Context ctx) {
+        return ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE).getBoolean("sounds_on", true);
+    }
+
+    static void setSwitch(Context ctx, boolean value) {
+        ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE).edit().putBoolean("sounds_on", value).apply();
+        init(ctx);
+    }
+
+    /** Works out whether sounds play now: their switch is on, and neither Lite mode nor Night mode pauses them. */
     static void init(Context context) {
-        on = Settings.System.getInt(context.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+        on = enabled(context) && !Comfort.lite(context) && !Comfort.nightMode(context);
         pack = pack(context);
         volume = volume(context);
         back = backSound(context);
         if (on) load(context);
     }
 
-    /** The Sound effects switch in the launcher's Settings: on loads the sounds, off silences them at once. */
+    /** Silences the sounds at once (false), or works out again whether they play (true). */
     static void setEnabled(Context context, boolean enabled) {
-        on = enabled;
         if (enabled) init(context);
+        else on = false;
     }
 
     static boolean active() {

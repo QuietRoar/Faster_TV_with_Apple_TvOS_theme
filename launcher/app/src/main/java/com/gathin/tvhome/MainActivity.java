@@ -410,7 +410,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         // Before the wallpaper decodes: tvos_style's glass needs the backdrop the player makes from it.
         LiquidGlass.enabled = cfg.topMenu && getResources().getBoolean(R.bool.tvos_style);
         LiquidGlass.gloss = getSharedPreferences(TVOS_PREFS, MODE_PRIVATE).getInt("gloss", 60) / 100f;
-        if (LiquidGlass.enabled && !Comfort.lite(this) && !Comfort.nightMode(this)) TvSounds.init(this);
+        if (LiquidGlass.enabled) TvSounds.init(this);
         wallpaperPlayer = new WallpaperPlayer(this, root, cfg);
         // tvos_style: the focused top-row app's own picture over the wallpaper, when the theme brought any.
         File themeDir = Config.dir(this);
@@ -3901,8 +3901,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             Comfort.setNightMode(this, false, 0);
             if (before >= 0) audio.setStreamVolume(stream, before, 0);
             if (hasTimer) open(timer.putExtra("minutes", 0));
-            boolean effects = Settings.System.getInt(getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
-            if (!Comfort.lite(this)) TvSounds.setEnabled(this, effects);
+            TvSounds.init(this);   // back on, unless their switch is off or Lite mode is on
             Toast.makeText(this, R.string.night_off, Toast.LENGTH_SHORT).show();
         }
         updateNight();

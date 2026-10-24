@@ -204,7 +204,7 @@
     <string name="set_volume">Volume</string>
     <string name="set_screensaver">Screensaver starts after</string>
     <string name="set_sleep">TV sleeps after</string>
-    <string name="set_sound_effects">Sound effects</string>
+    <string name="set_sound_effects">Navigation sounds</string>
     <string name="set_picture">Picture mode and brightness</string>
     <string name="set_never">Never</string>
     <string name="set_minutes">%1$d min</string>
@@ -376,6 +376,7 @@
     <string name="boost_standby">Clear when the TV sleeps</string>
     <!-- Interface sounds (tvos_style). -->
     <string name="snd_title">Sounds</string>
+    <string name="snd_on">Navigation sounds</string>
     <string name="snd_pack">Sound pack</string>
     <string name="snd_volume">Volume</string>
     <string name="snd_back">Sound on Back</string>
@@ -388,7 +389,7 @@
     <string name="snd_chime">Chime</string>
     <string name="snd_crystal">Crystal</string>
     <string name="snd_click">Click</string>
-    <string name="snd_off_hint">Sounds are off now (Sound effects in Picture &amp; sound, Lite mode or Night mode). You can still preview them here.</string>
+    <string name="snd_off_hint">Paused by Lite mode or Night mode</string>
     <string name="snd_greetings">Welcome and goodbye</string>
     <string name="snd_welcome">Welcome sound</string>
     <string name="snd_goodbye">Goodbye sound</string>

@@ -772,6 +772,12 @@ final class SettingsSheet {
     /** The interface sounds: the pack (each plays as you move through the list), volume, and the Back sound. */
     private void soundsPage() {
         title.setText(R.string.snd_title);
+        View onOff = row(R.drawable.ic_volume, home.getString(R.string.snd_on),
+                home.getString(TvSounds.enabled(home) ? R.string.bt_on : R.string.bt_off), "on", false, () -> {
+                    TvSounds.setSwitch(home, !TvSounds.enabled(home));
+                    render("on");
+                });
+        stepper(onOff, onOff::performClick, onOff::performClick);
         String[] packs = new String[TvSounds.PACKS.length];
         for (int i = 0; i < packs.length; i++) packs[i] = home.getString(TvSounds.PACK_NAMES[i]);
         listRow(R.drawable.ic_volume, home.getString(R.string.snd_pack), packs, null, TvSounds.pack(home), "pack",
@@ -806,8 +812,7 @@ final class SettingsSheet {
                 });
         stepper(goodbye, goodbye::performClick, goodbye::performClick);
         row(R.drawable.ic_info, home.getString(R.string.snd_goodbye_hint), null, "goodbyehint", false, null);
-        boolean effects = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
-        if (!effects || Comfort.lite(home) || Comfort.nightMode(home)) {
+        if (TvSounds.enabled(home) && (Comfort.lite(home) || Comfort.nightMode(home))) {
             row(R.drawable.ic_info, home.getString(R.string.snd_off_hint), null, "hint", false, null);
         }
     }
@@ -1231,20 +1236,12 @@ final class SettingsSheet {
                         return false;
                     }
                 });
-        boolean effects = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) != 0;
+        // The launcher's own sounds, apart from Android's "Sound effects" (which Xiaomi firmware turns off by itself).
         View sounds = row(R.drawable.ic_gloss, home.getString(R.string.set_sound_effects),
-                home.getString(effects ? R.string.bt_on : R.string.bt_off), "effects", false, null);
-        sounds.setOnClickListener(v -> {
-            boolean on = Settings.System.getInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, 1) == 0;
-            if (!canWrite || !Settings.System.putInt(home.getContentResolver(), Settings.System.SOUND_EFFECTS_ENABLED, on ? 1 : 0)) {
-                Toast.makeText(home, R.string.set_no_permission, Toast.LENGTH_LONG).show();
-                return;
-            }
-            if (on) audio.loadSoundEffects();
-            else audio.unloadSoundEffects();
-            TvSounds.setEnabled(home, on);
-            ((TextView) sounds.findViewById(R.id.value)).setText(on ? R.string.bt_on : R.string.bt_off);
-        });
+                home.getString(TvSounds.enabled(home) ? R.string.bt_on : R.string.bt_off), "effects", false, () -> {
+                    TvSounds.setSwitch(home, !TvSounds.enabled(home));
+                    render("effects");
+                });
         stepper(sounds, sounds::performClick, sounds::performClick);
         header(home.getString(R.string.set_more));
         // Picture modes and brightness belong to the TV maker's own settings; no app can reach them.
