@@ -24,20 +24,23 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 | **Gloss slider** | In the Control Center: Left and Right set how glossy everything is, from flat frosted glass (0%) to bright rims (100%). Remembered across restarts. |
 | **tvOS focus** | The focused icon lifts with a shadow, tilts toward the way you moved, and catches a sweep of light. Its name appears underneath. |
 | **Frosted grid** | Below the top row, the whole background blurs and dims, as on tvOS. |
-| **Themes** | TvOS (the slideshow) and ten painted on the TV itself, each with its own pattern: Aurora curtains, a Sunset over mountain ridges, Ocean waves, Midnight contour lines, Graphite hexagons, Forest pines, Rose bokeh, a Nebula planet, Dune sand and a Neon synthwave grid. Each one's accent colour, pattern strength and brightness can be changed, and your own pictures become themes too. The glass, the header and the dock adapt to whatever is behind them. |
-| **Control Center** | Power off, Wi-Fi, Inputs (HDMI and Live TV), Bluetooth (paired and nearby devices, pair and connect), Sleep timer, Clear background apps, Home settings, Settings and Google Assistant, each its own glass control. Add, remove and reorder them, and pin any of them to Home as a round symbol beside the clock. |
-| **Status symbols** | What is on (Wi-Fi, a Bluetooth speaker or headphones, a running sleep timer) shows beside the clock, filled with the theme's accent colour. |
-| **Settings in the launcher** | Wi-Fi (networks, connect with a password, forget), Bluetooth, Inputs, Picture & sound, Apps, About & storage, Themes, Welcome, Volume display, Clock and Clear background apps, all in compact glass cards; one row still leads to Android's own settings. |
+| **Themes** | TvOS (the slideshow) and fifteen painted on the TV itself, each with its own pattern: Aurora curtains, a Sunset over mountain ridges, Ocean waves, Midnight contour lines, Graphite hexagons, Forest pines, Rose bokeh, a Nebula planet, Dune sand, a Neon synthwave grid, and five with a look of their own (Studio, Editorial, Retro, Glacier, Moss) that bring their own clock and tile corners. Every theme keeps its own name, accent, clock, clock position and tile corners (soft, round or sharp). The glass, the header and the dock adapt to whatever is behind them. |
+| **Your photos as themes** | Send photos from your phone: the TV shows a QR code, the phone opens a small page on your home network and each photo you pick becomes a theme of its own (only while that page is open). Photos on the TV or a USB drive (DCIM, Pictures, Download, Bluetooth) can be added too. Each photo is turned upright and fits itself (a portrait photo shows whole on a blurred copy of itself), with Fit, Position and Zoom to adjust; rename it; the header symbols and clock take a tint of its colours. **Your photos slideshow** cycles through them every 1 to 60 minutes with a cross-fade. |
+| **Control Center** | Power off, Wi-Fi, Inputs (HDMI and Live TV), Bluetooth, Sleep timer, Clear background apps, Home settings, Settings and Google Assistant, each its own glass control, laid out on one even grid. Add, remove and reorder them, make each one half width, full width or a round button, and pin any of them to Home as a round symbol beside the clock. |
+| **Bluetooth in Home** | Paired and nearby devices in a card. The search keeps going past the Xiaomi remote service that stops it; pairing happens under the launcher's own "Pairing with…" card (a small accessibility helper answers Android's pairing window for a pairing you started) and the headphones' sound connects straight after, with "Connected" or "Couldn't pair" shown. Each device has its own page (connect, disconnect, forget). Turning Bluetooth off asks first in a large window, since the Mi remote is Bluetooth too. |
+| **Apple TV keyboard** | A keyboard like Apple TV's: the alphabet on one line, tabs for capitals, numbers and symbols, @ and .com for addresses. Made the TV's keyboard once; Gboard is a choice away in Settings, Keyboard. |
+| **Status symbols** | What is on (Wi-Fi, a Bluetooth speaker or headphones, a running sleep timer) shows beside the clock, filled with the theme's accent colour, all in one glass capsule with the Control Center button. |
+| **Settings in the launcher** | Grouped as on tvOS (Connections, Look & feel, Sound, System, Device): Wi-Fi (networks, connect with a password, forget), Bluetooth, Inputs, Themes, Clock, Welcome, Volume display, Night mode, Picture & sound, Sounds, Apps, Control Center, Clear background apps, and the TV's own settings done in the launcher: Display & screensaver (which screensaver, when, sleep, text size, animation speed), Date & time, Keyboard, Privacy & location and Device name. Every other Android page this TV has (Picture, Language, Accessibility, Developer options, Reset and more) opens straight from More Android settings. |
 | **Welcome banners** | One when the TV starts and one when it wakes, each with its own glossy 3D emoji, greeting, message and time on screen. |
 | **Volume display** | Six styles (Glass pill, tvOS bar, Side slider, Ring, Classic, Minimal line), in the theme's colour or one you choose, with a mute icon that stays while muted. Shown beside the TV's own volume bar; the Side slider sits over it and hides it. |
 | **Clear background apps** | Ends the background apps (never the launcher, the keyboard, Google services or your remote helpers) and shows the memory freed. |
-| **Clock** | Six styles (Light, Bold, Time and date, Glass pill, Large, and a widget card with a ring that fills through the day), beside the profile picture or left of the symbols. A night clock fills the empty top of Home with a big dim clock during your hours. |
+| **Clock** | Eight styles (Light, Bold, Time and date, Glass pill, Large, a widget card with a ring that fills through the day, Stacked hours over minutes, and Day: weekday, time and date), small in the header or big in the open sky above the apps (top left or centred), or hidden. Digits keep their width, so nothing shifts as they change. A night clock fills the empty top of Home with a big dim clock during your hours. |
 | **Night mode** | One tap halves the volume, dims the background, silences the click sounds and sets a 60-minute sleep timer; tap again to put it all back. |
 | **Sounds** | Six sound packs (Glass, Pop, Wood, Chime, Crystal, Click) for moving, OK and Back, each previewed as you browse; Soft, Normal or Loud; and very soft welcome and goodbye chimes. Synthesised for this launcher (`launcher/make_sounds.py`). |
 | **Option lists** | Every setting with several choices opens a list of them all, the current one ticked. |
 | **Profile** | Your picture (`profile.jpg` in the theme folder) beside the clock; it opens an account card with your Google account, Themes and Welcome. |
 | **Reorder mode** | Icons jiggle while you move them, as on tvOS. |
-| **Opening apps** | The app zooms out of its icon. |
+| **Opening apps** | The app zooms out of its icon. OK squeezes what you press, menus close quicker than they open, and the light on an icon sweeps the way you moved. |
 | **Sounds** | Its own soft tick when focus moves and a tock on OK, instead of Android's click. They follow the TV's sound-effects setting. |
 | **Aerial screensaver** | Optional add-on: the landscapes slowly zoom and drift when the TV is idle. |
 | **Typeface** | Inter throughout, the closest open-licence match to Apple's SF Pro. |
@@ -48,8 +51,14 @@ with Android 8 or newer; see [Using it on another TV](#using-it-on-another-tv).
 |---|---|
 | ![A sunset over the sea between mountains behind the glass top row](docs/tvos/beach.jpg) | ![A mountain lake reflecting the peaks behind the glass top row](docs/tvos/lake.jpg) |
 | Another landscape from the slideshow | And another |
-| ![The Control Center: Power off, Wi-Fi (network name blurred), Inputs, Bluetooth, Sleep timer, Night mode, Clear background apps, round buttons and the Gloss slider](docs/tvos/control-center.jpg) | ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) |
-| Control Center with the Gloss slider | Frosted grid below the top row |
+| ![The Editorial theme: the weekday, a big thin clock and the date centred above the top row over rose bokeh](docs/tvos/big-clock.jpg) | ![The Editorial theme's page: name, accent colour, clock style and position, app tiles and pattern](docs/tvos/theme-look.jpg) |
+| A big clock (Editorial theme) | Each theme's own clock, tiles and name |
+| ![Control Center on one grid: Wi-Fi (network name blurred), Inputs, Bluetooth, Sleep timer, Night mode, Clear apps, full-width Settings and Google Assistant, and the Gloss slider](docs/tvos/control-center.jpg) | ![Below the top row the background is frosted behind the app grid](docs/tvos/grid.jpg) |
+| Control Center, sizes of your choice | Frosted grid below the top row |
+| ![From your phone: a QR code and the TV's address (both blurred) and the photos as they arrive](docs/tvos/upload.jpg) | ![The Apple TV keyboard: the alphabet on one line under abc, ABC, 123, #+= and Done tabs](docs/tvos/keyboard.jpg) |
+| Photos from your phone | Apple TV keyboard |
+| ![The Bluetooth card: the connected remote, nearby devices to pair (names blurred) and paired devices](docs/tvos/bluetooth.jpg) | ![Turn off Bluetooth? A large window warning that the remote stops working, with Keep Bluetooth on and Turn off Bluetooth radio buttons and Done](docs/tvos/bluetooth-off.jpg) |
+| Bluetooth in Home | Turning Bluetooth off asks first |
 | ![The Neon theme: a striped synthwave sun over a glowing grid](docs/tvos/theme-neon.jpg) | ![Settings, Themes: each theme with a preview of its pattern](docs/tvos/themes.jpg) |
 | The Neon theme | Themes, with a preview of each pattern |
 | ![The volume display as a glass pill under the header, beside the TV's own bar](docs/tvos/volume.jpg) | ![Reorder mode: the icons wobble at slightly different angles](docs/tvos/reorder.jpg) |
@@ -109,11 +118,18 @@ Python client in `tools/` works around it.
 
 - **Gloss:** the slider at the bottom of the Control Center.
 - **Settings:** the gear in Control Center, or hold OK on the Control Center button.
-- **Themes:** Settings, Themes. OK switches; Right (or Menu) opens a theme's accent, pattern and brightness.
-- **Your own pictures as themes:** put them in a folder named `TV Themes` on a USB drive and choose Add under
-  Settings, Themes; or put them in `themes/liquid-glass/mythemes/` and push the theme.
+- **Themes:** Settings, Themes. OK switches; Right (or Menu) opens a theme's name, accent, clock, tiles,
+  pattern and brightness.
+- **Your own photos as themes:** Settings, Themes, From your phone: scan the code with your phone on the same
+  Wi-Fi and pick photos. Or On this TV or a USB drive, or put them in `themes/liquid-glass/mythemes/` and push
+  the theme. Each photo's page has Fit, Position, Zoom and Icon colour; Your photos slideshow cycles them.
+- **Clock:** a theme's page, Clock style and Clock position (Big, top left or Big, centred for the open sky).
+- **Bluetooth:** Control Center, Bluetooth. New devices are listed first with Pair; OK on a paired one opens its
+  page. Pairing in Home needs the "Bluetooth pairing in Home" helper, which the launcher switches on itself.
+- **Keyboard:** Settings, Keyboard, to go back to Gboard or any other.
 - **Control Center and Home symbols:** hold OK (or press Menu) on any control for Show on Home, Remove from
-  Control Center and the full list (Settings, Control Center & Home), where you can also reorder them.
+  Control Center and the full list (Settings, Control Center & Home), where you can also reorder them and pick
+  each one's size (half width, full width or round button).
 - **Night mode:** a row in Settings; it is also in Control Center and shows a symbol beside
   the clock while on.
 - **Sounds:** Settings, Sounds. Move through the packs to hear each one.
@@ -643,7 +659,8 @@ apps), which is why the report names that loss per package instead of calling it
 ## The launcher
 
 A small native home screen for Android TV: **about 474 KB**, plain Java, built for TVs with 1 GB of RAM.
-No blur, no video, no network permission, no background services.
+No blur, no video, no background services. This fork adds one network use, the tvOS style's "From your
+phone" photo page, which listens on the home network only while that page is open.
 
 The **TV** needs Android 8.0 (API 26) or newer: `minSdk` is a compile-time floor in
 [`launcher/app/build.gradle`](launcher/app/build.gradle), and the install script asks the TV for
