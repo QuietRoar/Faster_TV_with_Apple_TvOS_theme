@@ -17,11 +17,11 @@ final class Controls {
     static final String POWER = "power", WIFI = "wifi", INPUTS = "inputs", BLUETOOTH = "bluetooth", SLEEP = "sleep",
             SOUND = "sound", APPS = "apps", ABOUT = "about", SETTINGS = "settings", ASSISTANT = "assistant",
             HOME_SETTINGS = "home_settings", REORDER = "reorder", GLOSS = "gloss", BOOST = "boost", THEMES = "themes",
-            WELCOME = "welcome", NIGHT = "night";
+            WELCOME = "welcome", NIGHT = "night", AIRPODS = "airpods";
     /** Every control, in the order "More controls" lists them. */
-    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, SLEEP, NIGHT, BOOST, SOUND, APPS, ABOUT,
+    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, AIRPODS, SLEEP, NIGHT, BOOST, SOUND, APPS, ABOUT,
             THEMES, WELCOME, SETTINGS, ASSISTANT, HOME_SETTINGS, REORDER, GLOSS);
-    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,sleep,night,boost,home_settings,settings,assistant,gloss";
+    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,airpods,sleep,night,boost,home_settings,settings,assistant,gloss";
     private static final String DEFAULT_HOME = "wifi,bluetooth,sleep,night";
     private static final String PREFS = "tvos", CC = "cc_items", HOME = "home_items";
 
@@ -70,6 +70,7 @@ final class Controls {
             case WIFI: return R.drawable.ic_wifi;
             case INPUTS: return R.drawable.ic_input;
             case BLUETOOTH: return R.drawable.ic_bluetooth;
+            case AIRPODS: return R.drawable.ic_airpods;
             case SLEEP: return R.drawable.ic_sleep;
             case SOUND: return R.drawable.ic_volume;
             case APPS: return R.drawable.ic_apps;
@@ -92,6 +93,7 @@ final class Controls {
             case WIFI: return R.string.wifi;
             case INPUTS: return R.string.inputs;
             case BLUETOOTH: return R.string.bluetooth;
+            case AIRPODS: return R.string.cc_airpods;
             case SLEEP: return R.string.cc_sleep_timer;
             case SOUND: return R.string.set_sound;
             case APPS: return R.string.set_apps;
@@ -123,6 +125,7 @@ final class Controls {
     /** Control Center's controls, in order. A control added in an update joins once, after the sleep timer. */
     static List<String> controlCenter(Context ctx) {
         offerNight(ctx);
+        offerAirPods(ctx);
         return read(ctx, CC, DEFAULT_CC);
     }
 
@@ -147,6 +150,19 @@ final class Controls {
                 save(ctx, HOME, home);
             }
         }
+    }
+
+    /** The AirPods control came in an update: it joins a saved Control Center once, after Bluetooth. */
+    private static void offerAirPods(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        if (p.getBoolean("offered_airpods", false)) return;
+        p.edit().putBoolean("offered_airpods", true).apply();
+        if (!p.contains(CC)) return;
+        List<String> keys = read(ctx, CC, DEFAULT_CC);
+        if (keys.contains(AIRPODS)) return;
+        int at = keys.indexOf(BLUETOOTH);
+        keys.add(at < 0 ? keys.size() : at + 1, AIRPODS);
+        save(ctx, CC, keys);
     }
 
     /** The controls with a pill on Home, in order. Earlier builds kept hidden status pills in "status_hidden". */

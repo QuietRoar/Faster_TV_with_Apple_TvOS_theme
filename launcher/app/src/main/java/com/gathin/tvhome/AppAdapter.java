@@ -15,6 +15,8 @@ import android.content.res.Resources;
 import android.graphics.Bitmap;
 import android.graphics.Canvas;
 import android.graphics.Color;
+import android.graphics.ColorFilter;
+import android.graphics.LightingColorFilter;
 import android.graphics.Outline;
 import android.graphics.PixelFormat;
 import android.graphics.Rect;
@@ -110,16 +112,26 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
      * highlight, capped at the design size so 4 columns on a 1080p TV look exactly as before.
      */
     static int tileWidthPx(int innerWidthPx, int columns, float density) {
-        int design = Math.round(DESIGN_W_DP * density);
+        int design = Math.round((iconTiles ? ICON_DESIGN_DP : DESIGN_W_DP) * density);
         if (innerWidthPx <= 0 || columns <= 0) return design;
         int cell = innerWidthPx / columns;
         int fit = (int) ((cell - 12 * density) / FOCUS_SCALE);
-        return Math.max(Math.round(80 * density), Math.min(design, fit));
+        return Math.max(Math.round((iconTiles ? ICON_MIN_DP : 80) * density), Math.min(design, fit));
     }
 
     static int tileHeightPx(int tileWidthPx) {
-        return Math.round(tileWidthPx * DESIGN_H_DP / DESIGN_W_DP);
+        return iconTiles ? tileWidthPx : Math.round(tileWidthPx * DESIGN_H_DP / DESIGN_W_DP);
     }
+
+    /**
+     * Small icons (Themes.TILES_ICONS): square tiles filled with the app's own icon, ICON_COLUMNS to a row, with
+     * Apple's icon corner (about 22.5% of the width) and unfocused icons a little dimmed, like couch-tv's Night dock.
+     */
+    static boolean iconTiles;
+    static final int ICON_COLUMNS = 10;
+    static final float ICON_DESIGN_DP = 64f, ICON_MIN_DP = 40f, ICON_CORNER = 0.225f;
+    /** Unfocused icons at 82% brightness, so the focused one stands out. */
+    static final ColorFilter ICON_DIM = new LightingColorFilter(0xFFD1D1D1, 0);
 
     /** Height of one grid item: the tile, the name label under it and the item's own padding. */
     static int itemHeightPx(int tileHeightPx, float density) {
@@ -165,11 +177,12 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 : TOP_ROOM_DP + COMPACT_BOTTOM_ROOM_DP) * density;
         float perItem = (gridHeightPx - reserved) / (rowsBelowDock + 1);
         float tileH = perItem - (dockRow ? ITEM_EXTRA_DP : COMPACT_ITEM_EXTRA_DP) * density;
-        int byHeight = Math.round(tileH * DESIGN_W_DP / DESIGN_H_DP);
+        int byHeight = Math.round(iconTiles ? tileH : tileH * DESIGN_W_DP / DESIGN_H_DP);
         // Shrink at most to MIN_HEIGHT_FIT of the width-only size. Below that the tiles look lost in their wide
         // columns (2 rows under a titled dock came out at 80dp); the rows that still don't fit run off the bottom
         // and scroll, and MainActivity keeps the title's room above the dock.
-        return Math.max(Math.max(Math.round(80 * density), Math.round(w * MIN_HEIGHT_FIT)), Math.min(w, byHeight));
+        int floor = Math.round((iconTiles ? ICON_MIN_DP : 80) * density);
+        return Math.max(Math.max(floor, Math.round(w * MIN_HEIGHT_FIT)), Math.min(w, byHeight));
     }
 
     /** The smallest share of the width-only tile size that fitting rows_below_dock into the height may go to. */
@@ -291,7 +304,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
             String label = card != null ? card.label : Cards.cleanLabel(
                     appLabels.containsKey(pkg) ? appLabels.get(pkg) : String.valueOf(ri.loadLabel(pm)), pkg);
             if (!seen.add(pkg + '\n' + label)) continue;
-            Drawable banner = bundledBanner(appBanners.get(pkg));
+            Drawable banner = iconTiles && card == null ? loadIconArt(pm, ri) : bundledBanner(appBanners.get(pkg));
             if (banner == null) banner = loadBanner(pm, ri);
             // The icon is only drawn (and sampled for the glow) when there is no banner, so a tile with a
             // banner skips loading and decoding it.
@@ -341,6 +354,20 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         if (name == null || !name.startsWith("banner_")) return null;
         int id = ctx.getResources().getIdentifier(name, "drawable", ctx.getPackageName());
         return id != 0 ? ctx.getDrawable(id) : null;
+    }
+
+    /** The app's own icon at xxxhdpi, so a small square tile stays sharp through the focus zoom; null if it has none. */
+    private Drawable loadIconArt(PackageManager pm, ResolveInfo ri) {
+        int id = ri.activityInfo.getIconResource();
+        if (id != 0) {
+            try {
+                Resources resources = pm.getResourcesForApplication(ri.activityInfo.applicationInfo);
+                return resources.getDrawableForDensity(id, DisplayMetrics.DENSITY_XXXHIGH, null);
+            } catch (PackageManager.NameNotFoundException | Resources.NotFoundException ignored) {
+                // Falls back to loadIcon below.
+            }
+        }
+        return ri.loadIcon(pm);
     }
 
     private Drawable loadBanner(PackageManager pm, ResolveInfo ri) {
@@ -450,6 +477,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
         // A fully opaque banner covers the whole card (centerCrop), so the card's own fill under it is drawn for
         // nothing on every frame; keep it under banners with transparent parts and under icon tiles.
         h.card.setBackground(e.banner != null && e.banner.getOpacity() == PixelFormat.OPAQUE ? null : h.cardBackground);
+        h.banner.setColorFilter(iconTiles && !focused ? ICON_DIM : null);
         if (e.banner != null) {
             h.banner.setImageDrawable(e.banner);
             h.banner.setVisibility(View.VISIBLE);
@@ -723,6 +751,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
 
     /** Corner radius for a tile of this width: tileRadiusDp at the design width, proportionally less when smaller. */
     static float cornerRadius(int tileWidthPx, float density) {
+        if (iconTiles) return tileWidthPx * ICON_CORNER;
         return tileRadiusDp * density * Math.min(1f, tileWidthPx / (DESIGN_W_DP * density));
     }
 
@@ -793,6 +822,7 @@ public class AppAdapter extends RecyclerView.Adapter<RecyclerView.ViewHolder> {
                 }
                 banner.animate().cancel();
                 name.animate().cancel();
+                if (iconTiles) banner.setColorFilter(focused ? null : ICON_DIM);
                 float scale = !animations ? 1f : tilt ? 1.17f : advancedEffects ? 1.12f : 1.10f;
                 boolean lift = focused && (advancedEffects || tilt);
                 if (focused && gloss != null && animations && !reducedMotion) gloss.sweep(lastMoveKey == KeyEvent.KEYCODE_DPAD_LEFT);

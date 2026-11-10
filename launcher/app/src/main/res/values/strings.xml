@@ -390,6 +390,15 @@
     <string name="theme_tiles_soft">Soft corners</string>
     <string name="theme_tiles_round">Round corners</string>
     <string name="theme_tiles_sharp">Sharp corners</string>
+    <string name="theme_tiles_icons">Small icons</string>
+    <string name="watch_next_title">Keep watching</string>
+    <string name="airpods_connect">Connect</string>
+    <string name="airpods_case">Case</string>
+    <string name="cc_airpods">AirPods</string>
+    <string name="airpods_connected">Connected</string>
+    <string name="airpods_done">Done</string>
+    <string name="airpods_disconnected">Disconnected</string>
+    <string name="airpods_connecting">Connecting %1$s…</string>
     <string name="theme_clock_style">Clock style</string>
     <string name="photo_fit_title">Photo</string>
     <string name="photo_fit">Fit</string>

@@ -381,7 +381,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         applyViewInputsHandler(cfg.handleViewInputs);
         settingsKeycodes = cfg.settingsKeycodes;
         settingsKeyPanel = cfg.settingsKeyPanel;
-        COLUMNS = cfg.columns;
+        // Small icons (a theme's Tiles choice in tvos_style) fit ICON_COLUMNS square icons to a row.
+        AppAdapter.iconTiles = getResources().getBoolean(R.bool.tvos_style) && Themes.iconTiles(this);
+        COLUMNS = AppAdapter.iconTiles ? AppAdapter.ICON_COLUMNS : cfg.columns;
         animations = cfg.animations;
         advancedEffects = cfg.animations && cfg.advancedEffects;
         reducedMotion = cfg.reducedMotion;
@@ -589,6 +591,9 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             grid.post(this::refitGlass);
         });
 
+        setUpWatchNext();
+        setUpAirPods();
+
         // Keep the glass glued to its tile while the grid scrolls.
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
             @Override
@@ -776,7 +781,6 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             registerReceiver(minuteReceiver, tick);
             // The start banner only when Home comes up with the TV, not when it restarts later (an update, a theme).
             if (android.os.SystemClock.elapsedRealtime() < 5 * 60_000) root.postDelayed(() -> showWelcome(Welcome.START, false), 900);
-            applyClock();
             // After a reinstall Android leaves the volume display on its list but unbound, and binds it again only
             // when the list changes: take it off and put it back.
             if (VolumeView.Look.read(this).enabled && !volumeServiceBound()) rebindAccessibility();
@@ -799,6 +803,16 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             root.addView(nightDim, under + 1, new FrameLayout.LayoutParams(
                     ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
             root.post(this::updateNight);
+            // scene_clock: couch-tv's scenes with their clocks, above the wallpaper and under the night dimmer.
+            if (Config.themeSwitch(this, R.bool.scene_clock, "scene_clock")) {
+                sceneClock = SceneClock.create(this, Config.dir(this),
+                        Config.themeInt(this, R.integer.scene_seconds, "scene_seconds", 5, 600) * 1000L);
+                if (sceneClock != null) root.addView(sceneClock, under + 1, new FrameLayout.LayoutParams(
+                        ViewGroup.LayoutParams.MATCH_PARENT, ViewGroup.LayoutParams.MATCH_PARENT));
+            }
+            // After nightDim: the big clock goes just above it. Placed before, it went under the theme and the
+            // wallpaper and stayed hidden after every cold start (a theme push, an update, a reboot).
+            applyClock();
             if (!startTheme.photos()) {
                 Bitmap saved = savedTheme(startTheme);
                 if (saved != null) {
@@ -977,6 +991,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         super.onNewIntent(intent);
         if (openLauncherSettingsIfAsked(intent)) return;
         if (openInputsIfAsked(intent)) return;
+        if (showAirPodsDemoIfAsked(intent)) return;
         if (intent == null || !intent.hasCategory(Intent.CATEGORY_HOME)) return;
         grid.scrollToPosition(0);
         lastFocused = 0;
@@ -1007,6 +1022,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onResume() {
         super.onResume();
+        if (watchNext != null) watchNext.refresh();   // what was just watched comes first
+        if (airPods != null) airPods.start();
+        listenForAirPodsLink();
+        if (sceneClock != null) sceneClock.start();
         if (tvosStyle && Themes.current(this).slides()) {
             handler.removeCallbacks(nextSlide);
             handler.postDelayed(nextSlide, Themes.SLIDE_MINUTES[Themes.slideMinutesChoice(this)] * 60_000L);
@@ -1253,6 +1272,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         if (cardPrompt != null) cardPrompt.dismiss();
         if (appLibrary != null) appLibrary.close();
         if (openPopup != null) openPopup.dismiss();
+        if (airPods != null) airPods.stop();   // listens only while Home is on screen; the card goes with it
+        stopListeningForAirPodsLink();
+        hideAirPodsCard();
+        if (sceneClock != null) sceneClock.stop();
     }
 
     @Override
@@ -1279,6 +1302,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 || level == TRIM_MEMORY_RUNNING_LOW || level == TRIM_MEMORY_RUNNING_CRITICAL;
         if (!due || started) return;
         adapter.clear();
+        if (watchNext != null) watchNext.clear();
+        if (sceneClock != null) sceneClock.release();
         // Detach the adapter too: with Home stopped no layout pass runs, so the tile views (and the bitmaps
         // they hold) would stay attached until Home comes back. setAdapter(null) recycles them now.
         grid.setAdapter(null);
@@ -2345,7 +2370,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                     rtlAppGrid, keyCode == KeyEvent.KEYCODE_DPAD_LEFT);
         }
         if (keyCode == KeyEvent.KEYCODE_DPAD_UP) {
-            if (position < COLUMNS) return false;          // dock row: let focus move to the top bar
+            if (position < COLUMNS) return focusWatchNext();   // dock row: Keep watching, else the top bar
             target = position - COLUMNS;
         } else {
             int lastRowStart = ((count - 1) / COLUMNS) * COLUMNS;
@@ -3370,6 +3395,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private boolean controlAvailable(String key) {
         switch (key) {
             case Controls.BLUETOOTH: return BluetoothAdapter.getDefaultAdapter() != null;
+            case Controls.AIRPODS: return airPods != null && pairedAirPods() != null;
             case Controls.SLEEP: return sleepTimerIntent().resolveActivity(getPackageManager()) != null;
             case Controls.ASSISTANT: return assistantIntent().resolveActivity(getPackageManager()) != null;
             default: return true;
@@ -3548,6 +3574,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case Controls.SETTINGS: showSettingsSheet(SettingsSheet.HUB); break;
             case Controls.INPUTS: root.post(this::showInputs); break;
             case Controls.BLUETOOTH: root.post(this::showBluetooth); break;
+            case Controls.AIRPODS: root.post(this::showAirPodsFromControl); break;
             case Controls.SLEEP: open(sleepTimerIntent()); break;
             case Controls.ASSISTANT: open(assistantIntent()); break;
             case Controls.HOME_SETTINGS: openLauncherSettings(); break;
@@ -4041,6 +4068,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     /** The current theme's tile corners: the tiles, their gloss and the dock band are redrawn with them. */
     void applyTiles() {
         if (!tvosStyle) return;
+        if (Themes.iconTiles(this) != AppAdapter.iconTiles) {
+            // Small icons change the tile size, the columns and the artwork: lay Home out again.
+            recreate();
+            return;
+        }
         float radius = Themes.tileRadiusDp(this);
         if (radius == AppAdapter.tileRadiusDp) return;
         AppAdapter.tileRadiusDp = radius;
@@ -4201,12 +4233,288 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** tvos_style: the big clock in the sky above the apps; null while the clock is in the header or hidden. */
     private BigClock bigClock;
+    /** scene_clock: couch-tv's scenes with the clock among the scenery; null when off or no scenes were pushed. */
+    private SceneClock sceneClock;
+
+    // ---- Keep watching (watch_next_row) ---------------------------------------------------------------------
+
+    /** The Keep watching cards above the dock; null unless watch_next_row is on. */
+    private WatchNextRow watchNext;
+
+    private void setUpWatchNext() {
+        if (!Config.themeSwitch(this, R.bool.watch_next_row, "watch_next_row")) return;
+        watchNext = new WatchNextRow(this, () -> focusTile(0));
+        root.addView(watchNext, new FrameLayout.LayoutParams(ViewGroup.LayoutParams.MATCH_PARENT,
+                ViewGroup.LayoutParams.WRAP_CONTENT, Gravity.TOP | Gravity.START));
+        grid.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> root.post(this::placeWatchNext));
+        watchNext.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            if (b - t != ob - ot) root.post(this::placeWatchNext);
+        });
+        watchNext.setOnShown(this::followGridScroll);
+        // The row belongs to the page, not the screen: it goes up with the apps when they scroll, fading as it goes.
+        grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
+            @Override
+            public void onScrolled(@NonNull RecyclerView rv, int dx, int dy) {
+                followGridScroll();
+            }
+        });
+    }
+
+    /** Moves Keep watching with the grid's scroll: up by as much as the apps moved, and out of sight past its height. */
+    private void followGridScroll() {
+        if (watchNext == null || watchNext.getVisibility() == View.GONE) return;   // GONE: no cards
+        int offset = grid.computeVerticalScrollOffset();
+        watchNext.setTranslationY(-offset);
+        float height = Math.max(1, watchNext.getHeight());
+        float alpha = Math.max(0f, Math.min(1f, 1f - offset / height));
+        watchNext.setAlpha(alpha);
+        // Out of sight it takes no focus, so a card that has scrolled away can never be reached.
+        watchNext.setVisibility(alpha == 0f ? View.INVISIBLE : View.VISIBLE);
+    }
+
+    /** Sits the row just above the dock, lined up with the grid's left edge. */
+    private void placeWatchNext() {
+        if (watchNext == null) return;
+        int[] at = new int[2];
+        grid.getLocationInWindow(at);
+        int[] rootAt = new int[2];
+        root.getLocationInWindow(rootAt);
+        FrameLayout.LayoutParams lp = (FrameLayout.LayoutParams) watchNext.getLayoutParams();
+        int top = at[1] - rootAt[1] + grid.getPaddingTop() - watchNext.getHeight() - (int) (14 * density);
+        int left = at[0] - rootAt[0] + grid.getPaddingLeft();
+        if (lp.topMargin == top && lp.leftMargin == left) return;
+        lp.topMargin = Math.max(0, top);
+        lp.leftMargin = left;
+        watchNext.setLayoutParams(lp);
+    }
+
+    // ---- AirPods (airpods_popup) ----------------------------------------------------------------------------
+
+    /** Listens for AirPods being opened while Home is on screen; null unless airpods_popup is on. */
+    private AirPodsWatch airPods;
+    /** The connect card while it is on screen. */
+    private AirPodsCard airPodsCard;
+    /** Where focus was before the card took it, so it goes back there. */
+    private View beforeAirPods;
+
+    private void setUpAirPods() {
+        if (!Config.themeSwitch(this, R.bool.airpods_popup, "airpods_popup")) return;
+        airPods = new AirPodsWatch(this, new AirPodsWatch.Host() {
+            @Override public void onAirPodsNearby(BluetoothDevice device, AirPodsWatch.Info info) {
+                showAirPodsCard(device, info);
+            }
+
+            @Override public void onAirPodsGone() {
+                if (airPodsCard != null && !airPodsCard.isConnected()) hideAirPodsCard();
+            }
+
+            @Override public void onAirPodsBattery(AirPodsWatch.Info info) {
+                lastAirPodsInfo = info;
+                if (airPodsCard != null) airPodsCard.update(info.model, info);
+            }
+        });
+    }
+
+    /** The iPhone-style card: shown once, then its batteries follow the AirPods' messages. */
+    private void showAirPodsCard(BluetoothDevice device, AirPodsWatch.Info info) {
+        if (isFinishing()) return;
+        if (airPodsCard != null) {
+            airPodsCard.update(info.model, info);
+            return;
+        }
+        beforeAirPods = getCurrentFocus();
+        airPodsCard = new AirPodsCard(this, new AirPodsCard.Listener() {
+            @Override public void onConnect() {
+                if (airPodsCard != null && airPodsCard.isConnected()) {   // Done
+                    hideAirPodsCard();
+                    return;
+                }
+                android.widget.Toast.makeText(MainActivity.this, getString(R.string.airpods_connecting, info.model),
+                        android.widget.Toast.LENGTH_SHORT).show();
+                // The card stays: when they connect it turns into the Connected card (listenForAirPodsLink).
+                airPods.connect(device, () -> {
+                    hideAirPodsCard();
+                    showSettingsSheet(SettingsSheet.BLUETOOTH, true);
+                });
+            }
+
+            @Override public void onClose() {
+                airPods.dismissed();
+                hideAirPodsCard();
+            }
+        });
+        airPodsCard.update(info.model, info);
+        root.addView(airPodsCard, airPodsCard.placement());
+        hideGlass();
+        airPodsCard.rise();
+    }
+
+    /** The first AirPods paired with this TV, connected or not; null for none. */
+    private static BluetoothDevice pairedAirPods() {
+        BluetoothAdapter adapter = BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return null;
+        try {
+            for (BluetoothDevice d : adapter.getBondedDevices()) {
+                if (AirPodsWatch.isAirPodsName(d.getName())) return d;
+            }
+        } catch (SecurityException e) {
+            return null;
+        }
+        return null;
+    }
+
+    /**
+     * Control Center's AirPods control: the same card as when the case opens, for TVs whose Bluetooth misses the
+     * case's signal. Batteries are only known from that signal, so the card shows them when it has been heard.
+     */
+    private void showAirPodsFromControl() {
+        BluetoothDevice device = pairedAirPods();
+        if (device == null) {
+            root.post(this::showBluetooth);
+            return;
+        }
+        if (AirPodsWatch.connected(device)) {
+            showAirPodsConnected(device);
+            return;
+        }
+        int u = AirPodsWatch.UNKNOWN;
+        showAirPodsCard(device, new AirPodsWatch.Info(airPodsModel(device), u, u, u, false, false, false));
+    }
+
+    /** The model from the paired name ("Vyshak's AirPods Pro"), for when no case message gave it. */
+    private static String airPodsModel(BluetoothDevice device) {
+        String name = String.valueOf(device.getName());
+        return name.contains("Max") ? "AirPods Max" : name.contains("Pro") ? "AirPods Pro" : "AirPods";
+    }
+
+    // AirPods connect by themselves when their case opens next to the TV they were last used with. That link is
+    // reliable even where the TV's Bluetooth misses the case's own signal, so the card follows it: up with
+    // "Connected" and the battery when they connect, away when they disconnect (back in the case, lid closed).
+    private static final String ACTION_BATTERY = "android.bluetooth.device.action.BATTERY_LEVEL_CHANGED";
+    private static final String EXTRA_BATTERY = "android.bluetooth.device.extra.BATTERY_LEVEL";
+    private BroadcastReceiver airPodsLink;
+
+    private void listenForAirPodsLink() {
+        if (airPods == null || airPodsLink != null) return;
+        airPodsLink = new BroadcastReceiver() {
+            @Override
+            public void onReceive(Context context, Intent intent) {
+                BluetoothDevice device = intent.getParcelableExtra(BluetoothDevice.EXTRA_DEVICE);
+                if (device == null || !AirPodsWatch.isAirPodsName(device.getName())) return;
+                String action = String.valueOf(intent.getAction());
+                if (BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED.equals(action)) {
+                    int state = intent.getIntExtra(BluetoothProfile.EXTRA_STATE, -1);
+                    if (state == BluetoothProfile.STATE_CONNECTED) showAirPodsConnected(device);
+                    else if (state == BluetoothProfile.STATE_DISCONNECTED) showAirPodsDisconnected(device);
+                } else if (BluetoothDevice.ACTION_ACL_DISCONNECTED.equals(action)) {
+                    showAirPodsDisconnected(device);
+                } else if (ACTION_BATTERY.equals(action) && airPodsCard != null && airPodsCard.isConnected()) {
+                    airPodsCard.setConnected(airPodsModel(device), batteryPercent(intent.getIntExtra(EXTRA_BATTERY, -1)));
+                }
+            }
+        };
+        IntentFilter filter = new IntentFilter(BluetoothA2dp.ACTION_CONNECTION_STATE_CHANGED);
+        filter.addAction(BluetoothDevice.ACTION_ACL_DISCONNECTED);
+        filter.addAction(ACTION_BATTERY);
+        registerReceiver(airPodsLink, filter);
+    }
+
+    private void stopListeningForAirPodsLink() {
+        if (airPodsLink == null) return;
+        unregisterReceiver(airPodsLink);
+        airPodsLink = null;
+    }
+
+    private static int batteryPercent(int level) {
+        return level >= 0 && level <= 100 ? level : AirPodsWatch.UNKNOWN;
+    }
+
+    /** The battery Android has for the device (hidden getBatteryLevel, from the AirPods' hands-free link). */
+    private static int batteryLevel(BluetoothDevice device) {
+        try {
+            Object level = BluetoothDevice.class.getMethod("getBatteryLevel").invoke(device);
+            return level instanceof Integer ? batteryPercent((Integer) level) : AirPodsWatch.UNKNOWN;
+        } catch (ReflectiveOperationException | RuntimeException e) {
+            return AirPodsWatch.UNKNOWN;
+        }
+    }
+
+    private void showAirPodsConnected(BluetoothDevice device) {
+        if (isFinishing()) return;
+        if (airPodsCard == null) {
+            int u = AirPodsWatch.UNKNOWN;
+            showAirPodsCard(device, new AirPodsWatch.Info(airPodsModel(device), u, u, u, false, false, false));
+        }
+        if (airPodsCard == null) return;
+        airPodsCard.setConnected(airPodsModel(device), batteryLevel(device));
+        if (lastAirPodsInfo != null) airPodsCard.update(lastAirPodsInfo.model, lastAirPodsInfo);
+    }
+
+    /** How long "Disconnected" stays before the card slides away. */
+    private static final long DISCONNECTED_MS = 2500;
+    /** The batteries from the last case message heard, for a card that opens before the next one. */
+    private AirPodsWatch.Info lastAirPodsInfo;
+
+    /** Back in the case, lid closed: "Disconnected" for a moment, then the card goes. */
+    private void showAirPodsDisconnected(BluetoothDevice device) {
+        if (isFinishing()) return;
+        if (airPodsCard == null) {
+            int u = AirPodsWatch.UNKNOWN;
+            showAirPodsCard(device, lastAirPodsInfo != null ? lastAirPodsInfo
+                    : new AirPodsWatch.Info(airPodsModel(device), u, u, u, false, false, false));
+            if (airPodsCard == null) return;
+            airPodsCard.setConnected(airPodsModel(device), batteryLevel(device));
+        }
+        AirPodsCard card = airPodsCard;
+        card.setDisconnected();
+        root.postDelayed(() -> {
+            if (airPodsCard == card) hideAirPodsCard();
+        }, DISCONNECTED_MS);
+    }
+
+    /**
+     * Diagnosis only: with setprop log.tag.AirPodsWatch VERBOSE, am start -n com.gathin.tvhome/.MainActivity
+     * --ez airpods_demo true shows the card for the first paired AirPods, to check its look without the case.
+     */
+    private boolean showAirPodsDemoIfAsked(Intent intent) {
+        if (intent == null || !intent.getBooleanExtra("airpods_demo", false)) return false;
+        if (airPods == null || !android.util.Log.isLoggable("AirPodsWatch", android.util.Log.VERBOSE)) return true;
+        android.bluetooth.BluetoothAdapter adapter = android.bluetooth.BluetoothAdapter.getDefaultAdapter();
+        if (adapter == null) return true;
+        for (BluetoothDevice d : adapter.getBondedDevices()) {
+            if (AirPodsWatch.isAirPodsName(d.getName())) {
+                showAirPodsCard(d, new AirPodsWatch.Info("AirPods Pro", 80, 70, 50, false, false, true));
+                break;
+            }
+        }
+        return true;
+    }
+
+    private void hideAirPodsCard() {
+        AirPodsCard card = airPodsCard;
+        if (card == null) return;
+        airPodsCard = null;
+        card.fall(() -> root.removeView(card));
+        View back = beforeAirPods;
+        beforeAirPods = null;
+        if (back != null && back.isAttachedToWindow()) back.requestFocus();
+        else focusTile(0);
+    }
+
+    /** Up from the dock: into Keep watching when it has cards. */
+    private boolean focusWatchNext() {
+        if (watchNext == null || !watchNext.focusFirst()) return false;
+        hideGlass();
+        hideHero();
+        return true;
+    }
 
     /**
      * Puts the big clock top left, level with the header and lined up with the apps' left edge, or centred in the
      * sky between the header and the top row; place -1 takes it away.
      */
     private void placeBigClock(int place, int style) {
+        if (sceneClock != null) place = -1;   // the scene draws its own clock
         if (place < 0) {
             if (bigClock != null) root.removeView(bigClock);
             bigClock = null;

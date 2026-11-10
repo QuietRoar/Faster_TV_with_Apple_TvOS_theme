@@ -74,9 +74,11 @@ final class Themes {
     private static final float AUTO_FILL_KEEPS = 0.7f;
 
     /** The app tiles' corners: soft (tvOS), round, or sharp; the dock band and the glass follow. */
-    static final int TILES_SOFT = 0, TILES_ROUND = 1, TILES_SHARP = 2;
-    static final int[] TILE_NAMES = {R.string.theme_tiles_soft, R.string.theme_tiles_round, R.string.theme_tiles_sharp};
-    private static final float[] TILE_RADIUS_DP = {16f, 26f, 6f};
+    /** TILES_ICONS: small square app icons, ten to a row, as couch-tv's Night dock draws them (AppAdapter.iconTiles). */
+    static final int TILES_SOFT = 0, TILES_ROUND = 1, TILES_SHARP = 2, TILES_ICONS = 3;
+    static final int[] TILE_NAMES = {R.string.theme_tiles_soft, R.string.theme_tiles_round, R.string.theme_tiles_sharp,
+            R.string.theme_tiles_icons};
+    private static final float[] TILE_RADIUS_DP = {16f, 26f, 6f, 16f};
 
     static final class Theme {
         final String id;
@@ -450,13 +452,20 @@ final class Themes {
 
     /** The current theme's tile corners: your choice for it, else its own, else soft. */
     static int tilesChoice(Context ctx, Theme t) {
-        int own = t.tiles >= 0 ? t.tiles : TILES_SOFT;
+        // A theme's "icon_tiles": true makes Small icons the default; a choice made on the TV still wins.
+        int fallback = Config.themeSwitch(ctx, R.bool.icon_tiles, "icon_tiles") ? TILES_ICONS : TILES_SOFT;
+        int own = t.tiles >= 0 ? t.tiles : fallback;
         int v = prefs(ctx).getInt("theme_tiles_" + t.id, own);
         return v < 0 || v >= TILE_NAMES.length ? TILES_SOFT : v;
     }
 
     static float tileRadiusDp(Context ctx) {
         return TILE_RADIUS_DP[tilesChoice(ctx, current(ctx))];
+    }
+
+    /** The current theme draws its apps as small square icons instead of banners. */
+    static boolean iconTiles(Context ctx) {
+        return tilesChoice(ctx, current(ctx)) == TILES_ICONS;
     }
 
     // ---- painting ------------------------------------------------------------------------------------------

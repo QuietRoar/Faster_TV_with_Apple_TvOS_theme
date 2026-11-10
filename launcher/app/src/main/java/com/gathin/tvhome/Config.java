@@ -306,6 +306,25 @@ final class Config {
         return value != null && GLOW_HORIZON.equalsIgnoreCase(value.trim()) ? GLOW_HORIZON : GLOW_RADIAL;
     }
 
+    /**
+     * An on/off key read on its own, outside load(): config.xml's value, which the theme's config.json overrides.
+     * For watch_next_row and airpods_popup, which only MainActivity reads.
+     */
+    static boolean themeSwitch(Context ctx, int resId, String key) {
+        boolean value = ctx.getResources().getBoolean(resId);
+        File dir = dir(ctx);
+        JSONObject json = dir == null ? null : read(new File(dir, FILE_NAME));
+        return json == null ? value : bool(json, key, value);
+    }
+
+    /** The same for a number, kept between min and max (scene_seconds). */
+    static int themeInt(Context ctx, int resId, String key, int min, int max) {
+        int value = ctx.getResources().getInteger(resId);
+        File dir = dir(ctx);
+        JSONObject json = dir == null ? null : read(new File(dir, FILE_NAME));
+        return json == null ? value : integer(json, key, value, min, max);
+    }
+
     /** The folder the theme tools push into; null when external storage is unavailable. */
     static File dir(Context ctx) {
         return ctx.getExternalFilesDir(null);

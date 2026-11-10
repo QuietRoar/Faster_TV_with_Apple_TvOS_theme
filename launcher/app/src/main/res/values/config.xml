@@ -310,6 +310,28 @@
          "show_stats": true. Nothing is read, and the clock does not move, while this is false. -->
     <bool name="show_stats">false</bool>
 
+    <!-- A Keep watching row above the dock: the shows other apps put on Android's Continue watching (Watch Next)
+         list, with the app, the episode and how far in, newest first. OK opens the show in its app. Needs
+         READ_TV_LISTINGS (pm grant com.gathin.tvhome android.permission.READ_TV_LISTINGS); without it the row
+         stays hidden. A poster on the web is downloaded once and kept in Home's cache folder (40 at most).
+         A theme can set it with "watch_next_row": true. -->
+    <bool name="watch_next_row">false</bool>
+
+    <!-- AirPods: while Home is on screen, listen for the Bluetooth signal AirPods send when their case opens and,
+         for AirPods already paired with this TV but not connected, ask whether to connect them. Listens only while
+         Home is visible, never in the background. A theme can set it with "airpods_popup": true. -->
+    <bool name="airpods_popup">false</bool>
+
+    <!-- couch-tv's Night scenes (scene_clock): the theme folder's scenes/ pictures fill the screen in turn, each with
+         its own huge thin clock and date, and the scenery cut-out drawn over the digits. Replaces the big clock and the
+         wallpaper while on. scene_seconds is how long each scene stays. A theme can set "scene_clock": true and
+         "scene_seconds": 20. -->
+    <!-- Small icons by default (a theme can set "icon_tiles": true): square app icons, ten to a row, unless the
+         owner picks other tiles on the TV (theme, Customise, App tiles). -->
+    <bool name="icon_tiles">false</bool>
+    <bool name="scene_clock">false</bool>
+    <integer name="scene_seconds">20</integer>
+
     <!-- Time-of-day backdrop behind everything: a dark gradient that follows the clock, with a warm
          horizon glow around sunrise and sunset. 0 keeps the plain background (the default); 1 to 100
          sets its opacity. Around 60 reads clearly without hiding a wallpaper. Can also be set with

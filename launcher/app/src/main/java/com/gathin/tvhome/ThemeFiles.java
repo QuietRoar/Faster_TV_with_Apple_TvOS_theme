@@ -8,6 +8,8 @@ final class ThemeFiles {
     static final String WALLPAPERS = "wallpapers";
     /** tvos_style's top-shelf pictures, one per app, named by package: shelf/com.netflix.ninja.jpg. */
     static final String SHELF = "shelf";
+    /** scene_clock's pictures (SceneClock): night.jpg, night-fg.webp, night-glass.jpg and the rest. */
+    static final String SCENES = "scenes";
     /** tvos_style's profile picture, shown round beside the Control Center button. */
     static final String PROFILE = "profile.jpg";
     /** tvos_style: the Google account the profile button opens in Settings, one line (kept out of git). */
@@ -30,7 +32,8 @@ final class ThemeFiles {
                 && (collectionImage(segments.get(1)) || WallpaperCaptions.FILE_NAME.equals(segments.get(1)))) {
             return WALLPAPERS + "/" + segments.get(1);
         }
-        if (segments.size() == 2 && (SHELF.equals(segments.get(0)) || Themes.MY_THEMES.equals(segments.get(0)))
+        if (segments.size() == 2 && (SHELF.equals(segments.get(0)) || Themes.MY_THEMES.equals(segments.get(0))
+                || SCENES.equals(segments.get(0)))
                 && collectionImage(segments.get(1))) {
             return segments.get(0) + "/" + segments.get(1);
         }
