@@ -332,6 +332,10 @@
     <bool name="scene_clock">false</bool>
     <integer name="scene_seconds">20</integer>
 
+    <!-- The round buttons at the top right, in percent of their size (a theme can set "top_buttons_scale": 78);
+         they shrink toward the right edge. 100 leaves them as they are. -->
+    <integer name="top_buttons_scale">100</integer>
+
     <!-- Time-of-day backdrop behind everything: a dark gradient that follows the clock, with a warm
          horizon glow around sunrise and sunset. 0 keeps the plain background (the default); 1 to 100
          sets its opacity. Around 60 reads clearly without hiding a wallpaper. Can also be set with

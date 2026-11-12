@@ -843,6 +843,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             tlp.addRule(RelativeLayout.ALIGN_PARENT_TOP);
             tlp.topMargin = (int) (14 * density);
             topButtons.setLayoutParams(tlp);
+            scaleTopButtons(topButtons);
         }
         if (iconOnlyButtons) {
             if (cfg.wifiLabelWidth > 0) btnWifi.setMaxWidth(Math.round(cfg.wifiLabelWidth * density));
@@ -1732,6 +1733,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     public void onTileFocused(int position, View card) {
         lastFocused = position;
         lastFocusedKey = adapter.keyAt(position);
+        if (watchNext != null) watchNext.showFor(adapter.packageAt(position));   // the focused app's shows
         // Focus restored before the first layout (cold start): the tile has no size yet, and the glass
         // would be sized to 2*pad. Run again once the tile is laid out.
         if (card.getWidth() == 0) {
@@ -4196,7 +4198,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         int style = Clock.inHeader(chosen);
         // The widget card stands in the clock's place; the plain clock hides while it shows.
         if (clockCard != null) bar.removeView(clockCard);
-        boolean inHeader = place == Clock.RIGHT || place == Clock.LEFT;
+        // scene_clock draws the time in the scene: no second clock in the header.
+        boolean inHeader = sceneClock == null && (place == Clock.RIGHT || place == Clock.LEFT);
         if (inHeader && style == Clock.WIDGET) {
             if (clockCard == null) {
                 clockCard = new ClockCard(this);
@@ -4235,6 +4238,22 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     private BigClock bigClock;
     /** scene_clock: couch-tv's scenes with the clock among the scenery; null when off or no scenes were pushed. */
     private SceneClock sceneClock;
+
+    /**
+     * top_buttons_scale (percent): the round buttons at the top right drawn smaller (or larger), shrinking toward
+     * the screen's right edge so they keep their corner. 100 leaves them as they are.
+     */
+    private void scaleTopButtons(View topButtons) {
+        int percent = Config.themeInt(this, R.integer.top_buttons_scale, "top_buttons_scale", 50, 150);
+        if (percent == 100) return;
+        float scale = percent / 100f;
+        topButtons.setScaleX(scale);
+        topButtons.setScaleY(scale);
+        topButtons.addOnLayoutChangeListener((v, l, t, r, b, ol, ot, or, ob) -> {
+            v.setPivotX(r - l);
+            v.setPivotY(0);
+        });
+    }
 
     // ---- Keep watching (watch_next_row) ---------------------------------------------------------------------
 

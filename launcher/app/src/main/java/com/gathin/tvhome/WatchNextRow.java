@@ -56,6 +56,8 @@ final class WatchNextRow extends LinearLayout {
     private static final String TAG = "WatchNextRow";
     /** Cards shown at most: the newest first. */
     static final int MAX_CARDS = 8;
+    /** Shows kept from the list, so the row can show the focused app's even when others are newer. */
+    static final int MAX_KEPT = 40;
     private static final float CARD_W_DP = 260, CARD_H_DP = 72, THUMB_W_DP = 96, RADIUS_DP = 14, GAP_DP = 16;
     private static final float FOCUS_SCALE = 1.06f;
     private static final int FOCUS_MS = 140, PROGRESS_STEPS = 1000;
@@ -89,6 +91,16 @@ final class WatchNextRow extends LinearLayout {
     private final Handler main = new Handler(Looper.getMainLooper());
     /** Bumped by every refresh and clear, so a slow read never draws over a newer one. */
     private int generation;
+    private final TextView heading;
+    /** Every show kept from the list, newest first, and the posters had so far, by their address. */
+    private List<Item> all = new ArrayList<>();
+    private final java.util.Map<String, Bitmap> posters = new java.util.HashMap<>();
+    /** The apps' own recommendations (readPicks), shown for the focused app when it has nothing to keep watching. */
+    private List<Item> picks = new ArrayList<>();
+    /** The focused app (showFor), or null: then every app's shows. */
+    private String filter;
+    /** The shows on screen now, so a move to another tile with the same shows redraws nothing. */
+    private List<Item> shown = new ArrayList<>();
 
     WatchNextRow(Context ctx, Host host) {
         super(ctx);
@@ -97,7 +109,7 @@ final class WatchNextRow extends LinearLayout {
         setOrientation(VERTICAL);
         setClipChildren(false);
         setClipToPadding(false);
-        TextView heading = new TextView(ctx);
+        heading = new TextView(ctx);
         heading.setText(R.string.watch_next_title);
         heading.setTextColor(0xD9FFFFFF);
         heading.setTextSize(TypedValue.COMPLEX_UNIT_SP, 14);
@@ -148,31 +160,55 @@ final class WatchNextRow extends LinearLayout {
         final ContentResolver resolver = getContext().getApplicationContext().getContentResolver();
         new Thread(() -> {
             List<Item> items = read(resolver);
+            List<Item> appPicks = readPicks(resolver);
+            List<Item> both = new ArrayList<>(items);
+            both.addAll(appPicks);
             // First what is already on the TV, so the row comes up at once; then the posters still to download,
             // each dropped into its card as it arrives.
-            List<Bitmap> posters = new ArrayList<>();
-            for (Item item : items) posters.add(poster(resolver, item.posterUri, false));
+            java.util.Map<String, Bitmap> found = new java.util.HashMap<>();
+            for (Item item : both) {
+                Bitmap b = item.posterUri == null ? null : poster(resolver, item.posterUri, false);
+                if (b != null) found.put(item.posterUri, b);
+            }
             main.post(() -> {
-                if (ticket == generation) show(items, posters);
+                if (ticket != generation) return;
+                all = items;
+                picks = appPicks;
+                posters.clear();
+                posters.putAll(found);
+                shown = new ArrayList<>();
+                render();
             });
-            for (int i = 0; i < items.size(); i++) {
-                if (posters.get(i) != null || ticket != generation) continue;
-                Bitmap late = poster(resolver, items.get(i).posterUri, true);
+            for (Item item : both) {
+                if (item.posterUri == null || found.containsKey(item.posterUri) || ticket != generation) continue;
+                Bitmap late = poster(resolver, item.posterUri, true);
                 if (late == null) continue;
-                final int index = i;
+                found.put(item.posterUri, late);
                 main.post(() -> {
-                    if (ticket == generation) setPoster(index, late);
+                    if (ticket == generation) setPoster(item.posterUri, late);
                 });
             }
         }, "watch-next").start();
     }
 
-    /** Puts a downloaded poster into the card at this position. */
-    private void setPoster(int index, Bitmap poster) {
-        if (index >= cards.getChildCount()) return;
-        View card = cards.getChildAt(index);
-        if (card instanceof ViewGroup && ((ViewGroup) card).getChildAt(0) instanceof ImageView) {
-            ((ImageView) ((ViewGroup) card).getChildAt(0)).setImageBitmap(poster);
+    /**
+     * The focused app changed (a tile on Home): the row shows that app's shows, as the Apple TV's top shelf does.
+     * An app with none leaves every app's shows in the row, so it does not come and go while moving along the dock.
+     */
+    void showFor(String pkg) {
+        if (pkg == null ? filter == null : pkg.equals(filter)) return;
+        filter = pkg;
+        render();
+    }
+
+    /** Puts a downloaded poster into every card showing it. */
+    private void setPoster(String uri, Bitmap poster) {
+        posters.put(uri, poster);
+        for (int i = 0; i < cards.getChildCount(); i++) {
+            View card = cards.getChildAt(i);
+            if (!(card instanceof ViewGroup) || !(((ViewGroup) card).getChildAt(0) instanceof ImageView)) continue;
+            ImageView thumb = (ImageView) ((ViewGroup) card).getChildAt(0);
+            if (uri.equals(thumb.getTag())) thumb.setImageBitmap(poster);
         }
     }
 
@@ -180,17 +216,52 @@ final class WatchNextRow extends LinearLayout {
     void clear() {
         generation++;
         cards.removeAllViews();
+        all = new ArrayList<>();
+        picks = new ArrayList<>();
+        shown = new ArrayList<>();
+        posters.clear();
         setVisibility(GONE);
     }
 
-    private void show(List<Item> items, List<Bitmap> posters) {
+    /**
+     * The focused app's shows to keep watching; else its own picks; else every app's shows to keep watching.
+     * At most MAX_CARDS.
+     */
+    static List<Item> pick(List<Item> all, List<Item> picks, String pkg) {
+        List<Item> from = all;
+        if (pkg != null) {
+            List<Item> mine = ofApp(all, pkg);
+            if (mine.isEmpty()) mine = ofApp(picks, pkg);
+            if (!mine.isEmpty()) from = mine;
+        }
+        return new ArrayList<>(from.subList(0, Math.min(MAX_CARDS, from.size())));
+    }
+
+    private static List<Item> ofApp(List<Item> items, String pkg) {
+        List<Item> mine = new ArrayList<>();
+        for (Item item : items) if (pkg.equals(item.pkg)) mine.add(item);
+        return mine;
+    }
+
+    private void render() {
+        List<Item> items = pick(all, picks, filter);
+        if (items.equals(shown) && cards.getChildCount() == items.size()) return;
+        shown = items;
+        boolean appsOwn = !items.isEmpty() && filter != null && filter.equals(items.get(0).pkg)
+                && !pick(all, picks, null).equals(items);
+        boolean fromPicks = appsOwn && picks.contains(items.get(0));
+        String app = appsOwn ? appName(getContext().getPackageManager(), filter) : "";
+        heading.setText(!appsOwn ? getContext().getString(R.string.watch_next_title)
+                : getContext().getString(fromPicks ? R.string.watch_next_picks : R.string.watch_next_on, app));
         boolean hadFocus = cards.findFocus() != null;
         cards.removeAllViews();
         for (int i = 0; i < items.size(); i++) {
             LinearLayout.LayoutParams lp = new LinearLayout.LayoutParams(dp(CARD_W_DP), dp(CARD_H_DP));
             if (i > 0) lp.leftMargin = dp(GAP_DP);
-            cards.addView(card(items.get(i), posters.get(i)), lp);
+            Item item = items.get(i);
+            cards.addView(card(item, item.posterUri == null ? null : posters.get(item.posterUri)), lp);
         }
+        scroller.scrollTo(0, 0);
         setVisibility(items.isEmpty() ? GONE : VISIBLE);
         if (onShown != null) onShown.run();
         if (hadFocus && !items.isEmpty()) focusFirst();
@@ -235,7 +306,49 @@ final class WatchNextRow extends LinearLayout {
         return newestFirst(items);
     }
 
-    /** Newest engagement first, at most MAX_CARDS, one card per show. */
+    /** An app's own recommendations kept at most, and from every app together. */
+    static final int PICKS_PER_APP = 6, MAX_PICKS = 60;
+
+    private static final String[] PREVIEW_COLUMNS = {
+            TvContract.PreviewPrograms.COLUMN_PACKAGE_NAME,
+            TvContract.PreviewPrograms.COLUMN_TITLE,
+            TvContract.PreviewPrograms.COLUMN_EPISODE_TITLE,
+            TvContract.PreviewPrograms.COLUMN_SEASON_DISPLAY_NUMBER,
+            TvContract.PreviewPrograms.COLUMN_EPISODE_DISPLAY_NUMBER,
+            TvContract.PreviewPrograms.COLUMN_INTENT_URI,
+            TvContract.PreviewPrograms.COLUMN_POSTER_ART_URI,
+            TvContract.PreviewPrograms.COLUMN_THUMBNAIL_URI,
+            TvContract.PreviewPrograms.COLUMN_BROWSABLE,
+    };
+
+    /**
+     * The rows apps publish for the Android TV home (preview channels: Netflix, YouTube, Prime Video and others put
+     * their picks there): shown for the focused app when it has nothing to keep watching. Same rules as read().
+     */
+    static List<Item> readPicks(ContentResolver resolver) {
+        List<Item> items = new ArrayList<>();
+        java.util.Map<String, Integer> perApp = new java.util.HashMap<>();
+        try (Cursor c = resolver.query(TvContract.PreviewPrograms.CONTENT_URI, PREVIEW_COLUMNS, null, null, null)) {
+            if (c == null) return items;
+            while (c.moveToNext() && items.size() < MAX_PICKS) {
+                String pkg = c.getString(0), title = c.getString(1);
+                boolean browsable = c.isNull(8) || c.getInt(8) != 0;
+                if (TextUtils.isEmpty(pkg) || TextUtils.isEmpty(title) || !browsable) continue;
+                int count = perApp.containsKey(pkg) ? perApp.get(pkg) : 0;
+                if (count >= PICKS_PER_APP) continue;
+                perApp.put(pkg, count + 1);
+                String poster = !c.isNull(7) ? c.getString(7) : c.getString(6);
+                items.add(new Item(pkg, title, subtitle(c.getString(3), c.getString(4), c.getString(2)),
+                        c.getString(5), poster, 0f, 0L));
+            }
+        } catch (SecurityException | IllegalArgumentException e) {
+            Log.i(TAG, "preview channels not readable: " + e.getMessage());
+        }
+        Log.i(TAG, "picks per app: " + perApp);
+        return items;
+    }
+
+    /** Newest engagement first, at most MAX_KEPT, one card per show. */
     static List<Item> newestFirst(List<Item> items) {
         List<Item> sorted = new ArrayList<>(items);
         Collections.sort(sorted, (a, b) -> Long.compare(b.engaged, a.engaged));
@@ -244,7 +357,7 @@ final class WatchNextRow extends LinearLayout {
         for (Item item : sorted) {
             if (!seen.add(item.pkg + '\n' + item.title.toLowerCase(Locale.ROOT))) continue;
             out.add(item);
-            if (out.size() == MAX_CARDS) break;
+            if (out.size() == MAX_KEPT) break;
         }
         return out;
     }
@@ -384,6 +497,7 @@ final class WatchNextRow extends LinearLayout {
         thumb.setScaleType(ImageView.ScaleType.CENTER_CROP);
         thumb.setOutlineProvider(rounded(8));
         thumb.setClipToOutline(true);
+        thumb.setTag(item.posterUri);   // setPoster finds the card by it
         if (poster != null) thumb.setImageBitmap(poster);
         else thumb.setImageDrawable(appArt(pm, item.pkg));
         card.addView(thumb, new LinearLayout.LayoutParams(dp(THUMB_W_DP), ViewGroup.LayoutParams.MATCH_PARENT));

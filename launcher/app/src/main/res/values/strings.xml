@@ -392,6 +392,8 @@
     <string name="theme_tiles_sharp">Sharp corners</string>
     <string name="theme_tiles_icons">Small icons</string>
     <string name="watch_next_title">Keep watching</string>
+    <string name="watch_next_on">Keep watching on %1$s</string>
+    <string name="watch_next_picks">From %1$s</string>
     <string name="airpods_connect">Connect</string>
     <string name="airpods_case">Case</string>
     <string name="cc_airpods">AirPods</string>
