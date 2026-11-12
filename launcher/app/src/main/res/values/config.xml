@@ -329,6 +329,16 @@
     <!-- Small icons by default (a theme can set "icon_tiles": true): square app icons, ten to a row, unless the
          owner picks other tiles on the TV (theme, Customise, App tiles). -->
     <bool name="icon_tiles">false</bool>
+    <!-- A soundbar on HDMI ARC that has switched itself off wakes on the volume buttons, Mute, or an app starting to
+         play, and from Control Center's Speaker control (SpeakerWake): the TV turns HDMI-CEC off and on, which makes
+         it ask the soundbar for the audio. Only on a TV where a soundbar has been seen on ARC. A theme can set
+         "speaker_wake": true. -->
+    <bool name="speaker_wake">false</bool>
+
+    <!-- The volume display on by default (a theme can set "volume_display": true), until the owner turns it off on
+         the TV. It also shows a soundbar's level on HDMI ARC, which the TV copies into Android's volume. -->
+    <bool name="volume_display">false</bool>
+
     <bool name="scene_clock">false</bool>
     <integer name="scene_seconds">20</integer>
 

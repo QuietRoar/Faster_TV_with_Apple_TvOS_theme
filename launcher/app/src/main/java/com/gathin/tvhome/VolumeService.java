@@ -31,12 +31,23 @@ public class VolumeService extends AccessibilityService {
     private final BroadcastReceiver changes = new BroadcastReceiver() {
         @Override public void onReceive(Context context, Intent intent) {
             if (intent.getIntExtra(EXTRA_STREAM, AudioManager.STREAM_MUSIC) != AudioManager.STREAM_MUSIC) return;
-            VolumeView.Look look = VolumeView.Look.read(VolumeService.this);
+            // Sound going to a soundbar on HDMI ARC gets the soundbar's look.
+            VolumeView.Look look = toSoundbar() ? VolumeView.Look.readSoundbar(VolumeService.this)
+                    : VolumeView.Look.read(VolumeService.this);
             // The new level comes with the change; reading it back now can still give the old one.
             int level = intent.getIntExtra("android.media.EXTRA_VOLUME_STREAM_VALUE", -1);
             if (look.enabled) show(look, level);
         }
     };
+
+    /** A soundbar on HDMI ARC is on: the TV's sound, and its volume, are the soundbar's. */
+    private boolean toSoundbar() {
+        if (audio == null || !SpeakerWake.enabled(this)) return false;   // Settings, Soundbar switched off
+        for (android.media.AudioDeviceInfo d : audio.getDevices(AudioManager.GET_DEVICES_OUTPUTS)) {
+            if (d.getType() == android.media.AudioDeviceInfo.TYPE_HDMI_ARC) return true;
+        }
+        return false;
+    }
 
     @Override
     protected void onServiceConnected() {

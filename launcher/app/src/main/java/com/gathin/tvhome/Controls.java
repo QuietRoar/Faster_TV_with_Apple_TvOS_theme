@@ -17,12 +17,12 @@ final class Controls {
     static final String POWER = "power", WIFI = "wifi", INPUTS = "inputs", BLUETOOTH = "bluetooth", SLEEP = "sleep",
             SOUND = "sound", APPS = "apps", ABOUT = "about", SETTINGS = "settings", ASSISTANT = "assistant",
             HOME_SETTINGS = "home_settings", REORDER = "reorder", GLOSS = "gloss", BOOST = "boost", THEMES = "themes",
-            WELCOME = "welcome", NIGHT = "night", AIRPODS = "airpods";
+            WELCOME = "welcome", NIGHT = "night", AIRPODS = "airpods", SPEAKER = "speaker";
     /** Every control, in the order "More controls" lists them. */
-    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, AIRPODS, SLEEP, NIGHT, BOOST, SOUND, APPS, ABOUT,
+    static final List<String> ALL = Arrays.asList(POWER, WIFI, INPUTS, BLUETOOTH, AIRPODS, SPEAKER, SLEEP, NIGHT, BOOST, SOUND, APPS, ABOUT,
             THEMES, WELCOME, SETTINGS, ASSISTANT, HOME_SETTINGS, REORDER, GLOSS);
-    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,airpods,sleep,night,boost,home_settings,settings,assistant,gloss";
-    private static final String DEFAULT_HOME = "wifi,bluetooth,sleep,night";
+    private static final String DEFAULT_CC = "power,wifi,inputs,bluetooth,airpods,speaker,sleep,night,boost,home_settings,settings,assistant,gloss";
+    private static final String DEFAULT_HOME = "wifi,speaker,bluetooth,sleep,night";
     private static final String PREFS = "tvos", CC = "cc_items", HOME = "home_items";
 
     /**
@@ -56,7 +56,8 @@ final class Controls {
 
     /** On Home only while it is on (connected, playing to a speaker, counting down). */
     static boolean status(String key) {
-        return WIFI.equals(key) || BLUETOOTH.equals(key) || SLEEP.equals(key) || NIGHT.equals(key);
+        return WIFI.equals(key) || BLUETOOTH.equals(key) || SLEEP.equals(key) || NIGHT.equals(key)
+                || SPEAKER.equals(key);
     }
 
     /** The Gloss slider lives in Control Center only: a pill has nowhere to slide. */
@@ -71,6 +72,7 @@ final class Controls {
             case INPUTS: return R.drawable.ic_input;
             case BLUETOOTH: return R.drawable.ic_bluetooth;
             case AIRPODS: return R.drawable.ic_airpods;
+            case SPEAKER: return R.drawable.ic_speaker_on;
             case SLEEP: return R.drawable.ic_sleep;
             case SOUND: return R.drawable.ic_volume;
             case APPS: return R.drawable.ic_apps;
@@ -94,6 +96,7 @@ final class Controls {
             case INPUTS: return R.string.inputs;
             case BLUETOOTH: return R.string.bluetooth;
             case AIRPODS: return R.string.cc_airpods;
+            case SPEAKER: return R.string.cc_speaker;
             case SLEEP: return R.string.cc_sleep_timer;
             case SOUND: return R.string.set_sound;
             case APPS: return R.string.set_apps;
@@ -155,19 +158,38 @@ final class Controls {
     /** The AirPods control came in an update: it joins a saved Control Center once, after Bluetooth. */
     private static void offerAirPods(Context ctx) {
         SharedPreferences p = prefs(ctx);
-        if (p.getBoolean("offered_airpods", false)) return;
-        p.edit().putBoolean("offered_airpods", true).apply();
+        if (p.getBoolean("offered_speaker", false)) return;
+        p.edit().putBoolean("offered_airpods", true).putBoolean("offered_speaker", true).apply();
         if (!p.contains(CC)) return;
         List<String> keys = read(ctx, CC, DEFAULT_CC);
-        if (keys.contains(AIRPODS)) return;
-        int at = keys.indexOf(BLUETOOTH);
-        keys.add(at < 0 ? keys.size() : at + 1, AIRPODS);
+        if (!keys.contains(AIRPODS)) {
+            int at = keys.indexOf(BLUETOOTH);
+            keys.add(at < 0 ? keys.size() : at + 1, AIRPODS);
+        }
+        if (!keys.contains(SPEAKER)) {
+            int at = keys.indexOf(AIRPODS);
+            keys.add(at < 0 ? keys.size() : at + 1, SPEAKER);
+        }
         save(ctx, CC, keys);
+    }
+
+    /** The soundbar pill came in an update: it joins a saved Home list once, after Wi-Fi. */
+    private static void offerSpeakerOnHome(Context ctx) {
+        SharedPreferences p = prefs(ctx);
+        if (p.getBoolean("offered_speaker_home", false)) return;
+        p.edit().putBoolean("offered_speaker_home", true).apply();
+        if (!p.contains(HOME)) return;
+        List<String> home = read(ctx, HOME, DEFAULT_HOME);
+        if (home.contains(SPEAKER)) return;
+        int at = home.indexOf(WIFI);
+        home.add(at < 0 ? 0 : at + 1, SPEAKER);
+        save(ctx, HOME, home);
     }
 
     /** The controls with a pill on Home, in order. Earlier builds kept hidden status pills in "status_hidden". */
     static List<String> home(Context ctx) {
         offerNight(ctx);
+        offerSpeakerOnHome(ctx);
         SharedPreferences p = prefs(ctx);
         if (!p.contains(HOME) && p.contains("status_hidden")) {
             List<String> keys = read(ctx, HOME, DEFAULT_HOME);

@@ -18,9 +18,25 @@ import android.view.View;
  * muted, the speaker is struck through and the level greys out.
  */
 public class VolumeView extends View {
-    static final int GLASS_PILL = 0, TVOS_BAR = 1, SIDE_SLIDER = 2, RING = 3, CLASSIC = 4, MINIMAL = 5;
+    /**
+     * BOTTOM_BAR: the tvOS bar, solid, at the bottom centre: where TVs such as OnePlus's draw their own "HDMI ARC + -"
+     * hint for a soundbar, which it covers (the overlay is drawn above System UI).
+     */
+    static final int GLASS_PILL = 0, TVOS_BAR = 1, SIDE_SLIDER = 2, RING = 3, CLASSIC = 4, MINIMAL = 5, BOTTOM_BAR = 6,
+            BOTTOM_SEGMENTS = 7, BOTTOM_NUMBER = 8, BOTTOM_GLOW = 9;
     static final int[] STYLE_NAMES = {R.string.vol_style_pill, R.string.vol_style_tvos, R.string.vol_style_side,
-            R.string.vol_style_ring, R.string.vol_style_classic, R.string.vol_style_minimal};
+            R.string.vol_style_ring, R.string.vol_style_classic, R.string.vol_style_minimal, R.string.vol_style_bottom,
+            R.string.vol_style_bottom_segments, R.string.vol_style_bottom_number, R.string.vol_style_bottom_glow};
+
+    /** The styles at the bottom centre, solid, over the hint some TVs draw there for a soundbar. */
+    static boolean atBottom(int style) {
+        return style == BOTTOM_BAR || style == BOTTOM_SEGMENTS || style == BOTTOM_NUMBER || style == BOTTOM_GLOW;
+    }
+
+    /** Styles that hide something of the TV's beneath them, so they stay solid and on screen as long as it does. */
+    static boolean covers(int style) {
+        return style == SIDE_SLIDER || atBottom(style);
+    }
     /** Colours: 0 follows the theme's accent, then white and a fixed palette. */
     static final int[] COLOURS = {0, 0xFFFFFFFF, 0xFF0A84FF, 0xFF30D158, 0xFFFF9F0A, 0xFFFF375F, 0xFFBF5AF2};
     static final int[] COLOUR_NAMES = {R.string.vol_colour_theme, R.string.vol_colour_white, R.string.vol_colour_blue,
@@ -28,9 +44,12 @@ public class VolumeView extends View {
     static final float[] SIZES = {0.8f, 1f, 1.25f};
     static final int[] SIZE_NAMES = {R.string.vol_size_small, R.string.vol_size_medium, R.string.vol_size_large};
     static final int[] SECONDS_MS = {1500, 2500, 4000};
+    /** Behind the display: its frosted panel, or nothing (the bar or ring and the number alone, in the colour). */
+    static final int FROSTED = 0, TRANSPARENT = 1;
+    static final int[] BACKGROUND_NAMES = {R.string.vol_bg_frosted, R.string.vol_bg_clear};
     /** The Side slider covers System UI's own bar, so it stays at least as long as that bar does. */
     static int showMs(Look look) {
-        return look.style == SIDE_SLIDER ? Math.max(3500, SECONDS_MS[look.seconds]) : SECONDS_MS[look.seconds];
+        return covers(look.style) ? Math.max(3500, SECONDS_MS[look.seconds]) : SECONDS_MS[look.seconds];
     }
 
     /** The choices, kept with the other tvos_style ones. */
@@ -38,25 +57,59 @@ public class VolumeView extends View {
         boolean enabled;
         int style, colour, size, seconds;
         boolean number, stickyMute;
+        int background;
+        /** The soundbar's look (HDMI ARC): its own choices, kept under "arc_", the TV's until changed. */
+        boolean soundbar;
+
+        /**
+         * The look for a soundbar on HDMI ARC. On and off, and staying while muted, follow the TV's look; the style,
+         * colour, size, number and time are its own, the TV's until changed, except the style, which starts as the
+         * Bottom bar (it covers the TV's own soundbar hint).
+         */
+        static Look readSoundbar(Context ctx) {
+            SharedPreferences p = ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE);
+            Look tv = read(ctx);
+            Look l = new Look();
+            l.soundbar = true;
+            l.enabled = tv.enabled;
+            l.stickyMute = tv.stickyMute;
+            l.style = clamp(p.getInt("arc_vol_style", BOTTOM_BAR), STYLE_NAMES.length);
+            l.colour = clamp(p.getInt("arc_vol_colour", tv.colour), COLOURS.length);
+            l.size = clamp(p.getInt("arc_vol_size", tv.size), SIZES.length);
+            l.seconds = clamp(p.getInt("arc_vol_seconds", tv.seconds), SECONDS_MS.length);
+            l.number = p.getBoolean("arc_vol_number", tv.number);
+            l.background = clamp(p.getInt("arc_vol_bg", tv.background), BACKGROUND_NAMES.length);
+            return l;
+        }
 
         static Look read(Context ctx) {
             SharedPreferences p = ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE);
             Look l = new Look();
-            l.enabled = p.getBoolean("vol_on", false);
+            // A theme's "volume_display": true turns it on until the owner chooses on the TV.
+            l.enabled = p.contains("vol_on") ? p.getBoolean("vol_on", false)
+                    : Config.themeSwitch(ctx, R.bool.volume_display, "volume_display");
             l.style = clamp(p.getInt("vol_style", SIDE_SLIDER), STYLE_NAMES.length);
             l.colour = clamp(p.getInt("vol_colour", 0), COLOURS.length);
             l.size = clamp(p.getInt("vol_size", 1), SIZES.length);
             l.seconds = clamp(p.getInt("vol_seconds", 1), SECONDS_MS.length);
             l.number = p.getBoolean("vol_number", true);
             l.stickyMute = p.getBoolean("vol_sticky_mute", true);
+            l.background = clamp(p.getInt("vol_bg", FROSTED), BACKGROUND_NAMES.length);
             return l;
         }
 
         void save(Context ctx) {
+            if (soundbar) {
+                ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE).edit().putInt("arc_vol_style", style)
+                        .putInt("arc_vol_colour", colour).putInt("arc_vol_size", size)
+                        .putInt("arc_vol_seconds", seconds).putBoolean("arc_vol_number", number)
+                        .putInt("arc_vol_bg", background).apply();
+                return;
+            }
             ctx.getSharedPreferences("tvos", Context.MODE_PRIVATE).edit().putBoolean("vol_on", enabled)
                     .putInt("vol_style", style).putInt("vol_colour", colour).putInt("vol_size", size)
                     .putInt("vol_seconds", seconds).putBoolean("vol_number", number)
-                    .putBoolean("vol_sticky_mute", stickyMute).apply();
+                    .putBoolean("vol_sticky_mute", stickyMute).putInt("vol_bg", background).apply();
         }
 
         int accent(Context ctx) {
@@ -78,6 +131,8 @@ public class VolumeView extends View {
     private final RectF r = new RectF();
     private final Path path = new Path();
     private int style, accent;
+    /** The Transparent background: nothing drawn behind the level. */
+    private boolean clear;
     private float scale = 1f;
     private boolean number;
     private int level, max = 1;
@@ -102,7 +157,16 @@ public class VolumeView extends View {
     void setLook(Look look, int accent) {
         style = look.style;
         // The Side slider sits over System UI's own volume bar, which must not show through it.
-        panel.setColor(style == SIDE_SLIDER ? 0xFF1C1C20 : 0xD91C1C1E);
+        panel.setColor(covers(style) ? 0xFF1C1C20 : 0xD91C1C1E);
+        // Transparent: no panel and no rim; a soft shadow keeps the bar, the ring and the number readable over a
+        // bright picture, and the number takes the colour.
+        clear = look.background == TRANSPARENT && !covers(style);   // a covering style must stay solid to cover
+        if (clear) panel.setColor(0);
+        float shadow = clear ? 6 * density : 0;
+        for (Paint p : new Paint[]{text, icon, fill, track}) {
+            if (clear) p.setShadowLayer(shadow, 0, density, 0x99000000);
+            else p.clearShadowLayer();
+        }
         scale = SIZES[look.size];
         number = look.number;
         this.accent = accent;
@@ -128,6 +192,8 @@ public class VolumeView extends View {
         if (badge) return Gravity.TOP | Gravity.END;
         switch (style) {
             case TVOS_BAR: case MINIMAL: return Gravity.TOP | Gravity.CENTER_HORIZONTAL;
+            case BOTTOM_BAR: case BOTTOM_SEGMENTS: case BOTTOM_NUMBER: case BOTTOM_GLOW:
+                return Gravity.BOTTOM | Gravity.CENTER_HORIZONTAL;
             case SIDE_SLIDER: return Gravity.CENTER_VERTICAL | Gravity.END;
             case RING: case CLASSIC: return Gravity.CENTER;
             default: return Gravity.TOP | Gravity.END;
@@ -145,6 +211,7 @@ public class VolumeView extends View {
     /** Its margin from the screen's edge, in px. */
     int margin() {
         if (style == SIDE_SLIDER && !badge) return (int) (14 * density);
+        if (atBottom(style) && !badge) return (int) (18 * density);   // over the TV's hint near the bottom
         return style == MINIMAL && !badge ? 0 : (int) (28 * density);
     }
 
@@ -160,6 +227,10 @@ public class VolumeView extends View {
         } else {
             switch (style) {
                 case TVOS_BAR: w = (int) dp(300); h = (int) dp(44); break;
+                case BOTTOM_BAR: case BOTTOM_GLOW: w = (int) dp(320); h = (int) dp(60); break;
+                case BOTTOM_SEGMENTS: w = (int) dp(340); h = (int) dp(60); break;
+                // At least as big as the hint it covers, whatever the size chosen.
+                case BOTTOM_NUMBER: w = (int) Math.max(dp(230), 230 * density); h = (int) Math.max(dp(64), 60 * density); break;
                 // Sized to cover System UI's bar (about 40 x 267 dp at the right edge), its rounded ends past that bar's.
                 case SIDE_SLIDER: w = (int) (density * 64 * Math.max(1f, scale)); h = (int) (density * 330 * Math.max(1f, scale)); break;
                 case RING: w = h = (int) dp(170); break;
@@ -182,7 +253,8 @@ public class VolumeView extends View {
     @Override
     protected void onDraw(Canvas c) {
         float w = getWidth(), h = getHeight();
-        rim.setShader(new LinearGradient(0, 0, 0, h, 0x66FFFFFF, 0x14FFFFFF, Shader.TileMode.CLAMP));
+        rim.setShader(clear ? null : new LinearGradient(0, 0, 0, h, 0x66FFFFFF, 0x14FFFFFF, Shader.TileMode.CLAMP));
+        rim.setColor(clear ? 0 : 0xFFFFFFFF);
         if (badge) {
             r.set(0, 0, w, h);
             c.drawOval(r, panel);
@@ -191,10 +263,13 @@ public class VolumeView extends View {
             return;
         }
         switch (style) {
-            case TVOS_BAR: tvosBar(c, w, h); break;
+            case TVOS_BAR: case BOTTOM_BAR: tvosBar(c, w, h); break;
             case SIDE_SLIDER: side(c, w, h); break;
             case RING: ring(c, w, h); break;
             case CLASSIC: classic(c, w, h); break;
+            case BOTTOM_SEGMENTS: bottomSegments(c, w, h); break;
+            case BOTTOM_NUMBER: bottomNumber(c, w, h); break;
+            case BOTTOM_GLOW: bottomGlow(c, w, h); break;
             case MINIMAL: minimal(c, w, h); break;
             default: pill(c, w, h); break;
         }
@@ -222,7 +297,7 @@ public class VolumeView extends View {
     private void count(Canvas c, float x, float y, float size, Paint.Align align) {
         text.setTextSize(size);
         text.setTextAlign(align);
-        text.setColor(muted ? 0x99FFFFFF : 0xFFFFFFFF);
+        text.setColor(muted ? 0x99FFFFFF : clear ? ink() : 0xFFFFFFFF);
         c.drawText(String.valueOf(level), x, y, text);
     }
 
@@ -237,7 +312,10 @@ public class VolumeView extends View {
     private void tvosBar(Canvas c, float w, float h) {
         glass(c, w, h, h / 2f);
         speaker(c, dp(26), h / 2f, dp(18), muted);
-        bar(c, dp(48), h / 2f - dp(3), w - dp(20), h / 2f + dp(3));
+        // With the number on, the bar makes room for the level at its right end, as the Glass pill shows it.
+        float end = number ? w - dp(62) : w - dp(20);
+        bar(c, dp(48), h / 2f - dp(3), end, h / 2f + dp(3));
+        if (number) count(c, w - dp(20), h / 2f + dp(6), dp(17), Paint.Align.RIGHT);
     }
 
     private void side(Canvas c, float w, float h) {
@@ -299,6 +377,54 @@ public class VolumeView extends View {
             r.set(x, top, x + seg, bottom);
             c.drawRoundRect(r, dp(1.5f), dp(1.5f), p);
         }
+    }
+
+    /** A row of blocks lit up to the level, the speaker before it and the number after it. */
+    private void bottomSegments(Canvas c, float w, float h) {
+        glass(c, w, h, h / 2f);
+        speaker(c, dp(30), h / 2f, dp(20), muted);
+        int segments = 20;
+        float gap = dp(3), left = dp(56), right = number ? w - dp(64) : w - dp(26);
+        float seg = (right - left - gap * (segments - 1)) / segments;
+        int lit = Math.round(fraction() * segments);
+        for (int i = 0; i < segments; i++) {
+            Paint p = i < lit ? fill : track;
+            if (i < lit) fill.setColor(ink());
+            else track.setColor(0x33FFFFFF);
+            float x = left + i * (seg + gap);
+            r.set(x, h / 2f - dp(8), x + seg, h / 2f + dp(8));
+            c.drawRoundRect(r, dp(2), dp(2), p);
+        }
+        if (number) count(c, w - dp(22), h / 2f + dp(6), dp(18), Paint.Align.RIGHT);
+    }
+
+    /** The level as a big number in the middle, the speaker beside it and a short line under it. */
+    private void bottomNumber(Canvas c, float w, float h) {
+        glass(c, w, h, h / 2f);
+        speaker(c, dp(34), h / 2f, dp(22), muted);
+        text.setTextSize(dp(30));
+        text.setTextAlign(Paint.Align.CENTER);
+        text.setColor(muted ? 0x99FFFFFF : 0xFFFFFFFF);
+        c.drawText(String.valueOf(level), w / 2f + dp(12), h / 2f + dp(6), text);
+        bar(c, w / 2f - dp(40), h - dp(14), w / 2f + dp(64), h - dp(10));
+    }
+
+    /** The pill fills with the colour from the left up to the level; the number sits on top. */
+    private void bottomGlow(Canvas c, float w, float h) {
+        glass(c, w, h, h / 2f);
+        float f = fraction();
+        if (f > 0) {
+            c.save();
+            path.reset();
+            r.set(0, 0, w, h);
+            path.addRoundRect(r, h / 2f, h / 2f, Path.Direction.CW);
+            c.clipPath(path);
+            fill.setColor((ink() & 0x00FFFFFF) | 0x8C000000);
+            c.drawRect(0, 0, Math.max(h / 2f, w * f), h, fill);
+            c.restore();
+        }
+        speaker(c, dp(30), h / 2f, dp(20), muted);
+        if (number) count(c, w / 2f, h / 2f + dp(7), dp(20), Paint.Align.CENTER);
     }
 
     private void minimal(Canvas c, float w, float h) {

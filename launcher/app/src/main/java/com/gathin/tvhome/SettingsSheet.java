@@ -73,7 +73,7 @@ final class SettingsSheet {
             CONTROLS = "controls", ACCOUNT = "account", MEMORY = "memory", THEMES = "themes", WELCOME = "welcome",
             VOLUME = "volume", CLOCK = "clock", SOUNDS = "sounds", INPUTS = "inputs", BLUETOOTH = "bluetooth",
             UPLOAD = "upload", FOUND = "found", DISPLAY = "display", DATETIME = "datetime", KEYBOARD = "keyboard",
-            PRIVACY = "privacy", NAME = "name", ANDROID = "android";
+            PRIVACY = "privacy", NAME = "name", ANDROID = "android", SOUNDBAR = "soundbar";
     private static final String THEME = "theme:", BANNER = "banner:", PICK = "pick:";
     private static final String CONTROL = "control:", BT_DEVICE = "btdevice:", RENAME = "rename:";
     private static final String PASSWORD = "password:", NETWORK = "network:", APP = "app:";
@@ -275,6 +275,7 @@ final class SettingsSheet {
         else if (THEMES.equals(page)) themesPage();
         else if (WELCOME.equals(page)) welcomePage();
         else if (VOLUME.equals(page)) volumePage();
+        else if (SOUNDBAR.equals(page)) soundbarPage();
         else if (CLOCK.equals(page)) clockPage();
         else if (SOUNDS.equals(page)) soundsPage();
         else if (INPUTS.equals(page)) inputsPage();
@@ -379,6 +380,9 @@ final class SettingsSheet {
             row(R.drawable.ic_bluetooth, home.getString(R.string.bluetooth), home.bluetoothSummary(adapter), BLUETOOTH, true,
                     () -> push(BLUETOOTH));
         }
+        row(R.drawable.ic_speaker_on, home.getString(R.string.soundbar),
+                home.getString(SpeakerWake.enabled(home) ? R.string.bt_on : R.string.bt_off), SOUNDBAR, true,
+                () -> push(SOUNDBAR));
         row(R.drawable.ic_input, home.getString(R.string.inputs), null, INPUTS, true, () -> {
             if (!home.inputsArePanel()) {
                 push(INPUTS);
@@ -1278,6 +1282,12 @@ final class SettingsSheet {
                     render("sticky");
                 });
         stepper(sticky, sticky::performClick, sticky::performClick);
+        cycleRow(R.drawable.ic_gloss, R.string.vol_background, VolumeView.BACKGROUND_NAMES, look.background, "background", i -> {
+            VolumeView.Look l = VolumeView.Look.read(home);
+            l.background = i;
+            l.save(home);
+            home.previewVolume();
+        });
         int[] secondNames = {R.string.vol_secs_short, R.string.vol_secs_medium, R.string.vol_secs_long};
         cycleRow(R.drawable.ic_clock, R.string.vol_seconds, secondNames, look.seconds, "seconds", i -> {
             VolumeView.Look l = VolumeView.Look.read(home);
@@ -1285,6 +1295,78 @@ final class SettingsSheet {
             l.save(home);
         });
         row(R.drawable.ic_info, home.getString(R.string.vol_hint), null, "hint", false, null);
+    }
+
+    // ---- Soundbar -----------------------------------------------------------------------------------------------
+
+    /**
+     * A soundbar on HDMI ARC (SpeakerWake): one switch for all of it (waking it with the volume buttons, Mute or
+     * playback, its pill on Home and its Control Center tile, its own volume display), and that display's look.
+     */
+    private void soundbarPage() {
+        title.setText(R.string.soundbar);
+        boolean on = SpeakerWake.enabled(home);
+        View toggle = row(R.drawable.ic_speaker_on, home.getString(R.string.soundbar_switch),
+                home.getString(on ? R.string.bt_on : R.string.bt_off), "on", false, () -> {
+                    home.setSoundbar(!SpeakerWake.enabled(home));
+                    render("on");
+                });
+        stepper(toggle, toggle::performClick, toggle::performClick);
+        if (!on) {
+            row(R.drawable.ic_info, home.getString(R.string.soundbar_off_hint), null, "hint", false, null);
+            return;
+        }
+        row(R.drawable.ic_info, home.getString(home.soundbarSeen() ? R.string.soundbar_hint : R.string.soundbar_none),
+                null, "hint", false, null);
+        soundbarVolumeRows();
+    }
+
+    /**
+     * The soundbar's own look (HDMI ARC), shown while the TV's sound goes to a soundbar: style, colour, size, the
+     * number and how long it stays. The Bottom bar covers the hint some TVs draw for their soundbar.
+     */
+    private void soundbarVolumeRows() {
+        header(home.getString(R.string.soundbar_volume));
+        VolumeView.Look look = VolumeView.Look.readSoundbar(home);
+        cycleRow(R.drawable.ic_speaker_on, R.string.vol_style, VolumeView.STYLE_NAMES, look.style, "arcstyle", i -> {
+            VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+            l.style = i;
+            l.save(home);
+            home.previewVolume(l);
+        });
+        cycleRow(R.drawable.ic_gloss, R.string.vol_colour, VolumeView.COLOUR_NAMES, look.colour, "arccolour", i -> {
+            VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+            l.colour = i;
+            l.save(home);
+            home.previewVolume(l);
+        });
+        cycleRow(R.drawable.ic_picture, R.string.vol_size, VolumeView.SIZE_NAMES, look.size, "arcsize", i -> {
+            VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+            l.size = i;
+            l.save(home);
+            home.previewVolume(l);
+        });
+        View number = row(R.drawable.ic_info, home.getString(R.string.vol_number), home.getString(look.number ? R.string.bt_on : R.string.bt_off),
+                "arcnumber", false, () -> {
+                    VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+                    l.number = !l.number;
+                    l.save(home);
+                    home.previewVolume(l);
+                    render("arcnumber");
+                });
+        stepper(number, number::performClick, number::performClick);
+        cycleRow(R.drawable.ic_gloss, R.string.vol_background, VolumeView.BACKGROUND_NAMES, look.background, "arcbackground", i -> {
+            VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+            l.background = i;
+            l.save(home);
+            home.previewVolume(l);
+        });
+        int[] secondNames = {R.string.vol_secs_short, R.string.vol_secs_medium, R.string.vol_secs_long};
+        cycleRow(R.drawable.ic_clock, R.string.vol_seconds, secondNames, look.seconds, "arcseconds", i -> {
+            VolumeView.Look l = VolumeView.Look.readSoundbar(home);
+            l.seconds = i;
+            l.save(home);
+        });
     }
 
     // ---- Sounds -------------------------------------------------------------------------------------------

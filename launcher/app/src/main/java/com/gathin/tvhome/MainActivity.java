@@ -593,6 +593,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
         setUpWatchNext();
         setUpAirPods();
+        // speaker_wake: a soundbar on HDMI ARC that has gone to sleep wakes on the volume buttons, Mute or playback.
+        if (SpeakerWake.enabled(this)) startSoundbar();
 
         // Keep the glass glued to its tile while the grid scrolls.
         grid.addOnScrollListener(new RecyclerView.OnScrollListener() {
@@ -1327,6 +1329,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
     @Override
     protected void onDestroy() {
         super.onDestroy();
+        if (speakerWake != null) speakerWake.stop();
         stopPairWatch();
         unregisterReceiver(packageReceiver);
         if (statusReceiver != null) unregisterReceiver(statusReceiver);
@@ -3316,12 +3319,29 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
      */
     private void showControlCenter() {
         View panel = getLayoutInflater().inflate(R.layout.popup_control_center, root, false);
-        int width = (int) (340 * density);
+        int width = (int) ((340 + 2 * 14) * density);   // the controls' 340 dp and the panel's padding
         final PopupWindow popup = glassPopup(panel, width);
-        panel.setBackground(null);   // no panel: the controls are the glass
+        // One dark frosted panel behind the controls, so a bright scene, a poster or the dock behind never runs into
+        // their text; and a veil over Home while it is open.
+        int pad = (int) (14 * density);
+        panel.setPadding(pad, pad, pad, pad);
+        panel.setBackground(LiquidGlass.enabled ? new LiquidGlass.Background(panel, 28 * density, CC_PANEL, false)
+                : roundedPanel());
+        veilHome(popup);
 
+        // The owner's controls, sizes and order, grouped as tvOS draws them: the round buttons together at the top,
+        // then the pills, then the Gloss slider, each group in the owner's order.
         List<String> order = new ArrayList<>();
-        for (String key : Controls.controlCenter(this)) if (controlAvailable(key)) order.add(key);
+        List<String> pills = new ArrayList<>();
+        boolean withGloss = false;
+        for (String key : Controls.controlCenter(this)) {
+            if (!controlAvailable(key)) continue;
+            if (Controls.GLOSS.equals(key)) withGloss = true;
+            else if (Controls.size(this, key) == Controls.ROUND) order.add(key);
+            else pills.add(key);
+        }
+        order.addAll(pills);
+        if (withGloss) order.add(Controls.GLOSS);
         panel.findViewById(R.id.topBlock).setVisibility(View.GONE);
         panel.findViewById(R.id.roundRow).setVisibility(View.GONE);
         View gloss = panel.findViewById(R.id.ccGloss);
@@ -3380,6 +3400,38 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         first.requestFocus();
     }
 
+    /** Control Center's panel: near-opaque dark glass, so the controls read the same over any background. */
+    private static final int CC_PANEL = 0xE6141418;
+    /** The veil over Home while Control Center is open. */
+    private static final int CC_VEIL = 0x80000000;
+    private static final int CC_VEIL_MS = 200;
+
+    /** The panel without tvos_style's glass: the same dark colour in a rounded box with a faint rim. */
+    private android.graphics.drawable.GradientDrawable roundedPanel() {
+        android.graphics.drawable.GradientDrawable g = new android.graphics.drawable.GradientDrawable();
+        g.setColor(CC_PANEL);
+        g.setCornerRadius(28 * density);
+        g.setStroke(Math.max(1, (int) density), 0x26FFFFFF);
+        return g;
+    }
+
+    /** Darkens Home behind a popup and lifts the veil when it closes (keeping glassPopup's own close handling). */
+    private void veilHome(PopupWindow popup) {
+        ColorDrawable veil = new ColorDrawable(CC_VEIL);
+        veil.setBounds(0, 0, root.getWidth(), root.getHeight());
+        veil.setAlpha(0);
+        root.getOverlay().add(veil);
+        android.animation.ValueAnimator in = android.animation.ValueAnimator.ofInt(0, 255)
+                .setDuration(reducedMotion ? Motion.REDUCED_MS : CC_VEIL_MS);
+        in.addUpdateListener(a -> veil.setAlpha((int) a.getAnimatedValue()));
+        in.start();
+        popup.setOnDismissListener(() -> {
+            if (openPopup == popup) openPopup = null;
+            in.cancel();
+            root.getOverlay().remove(veil);
+        });
+    }
+
     private static View firstFocusable(View view) {
         if (view.getVisibility() != View.VISIBLE) return null;
         if (view.isFocusable()) return view;
@@ -3398,6 +3450,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         switch (key) {
             case Controls.BLUETOOTH: return BluetoothAdapter.getDefaultAdapter() != null;
             case Controls.AIRPODS: return airPods != null && pairedAirPods() != null;
+            case Controls.SPEAKER: return speakerWake != null && speakerWake.hasSoundbar();
             case Controls.SLEEP: return sleepTimerIntent().resolveActivity(getPackageManager()) != null;
             case Controls.ASSISTANT: return assistantIntent().resolveActivity(getPackageManager()) != null;
             default: return true;
@@ -3577,6 +3630,7 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             case Controls.INPUTS: root.post(this::showInputs); break;
             case Controls.BLUETOOTH: root.post(this::showBluetooth); break;
             case Controls.AIRPODS: root.post(this::showAirPodsFromControl); break;
+            case Controls.SPEAKER: wakeSpeaker(); break;
             case Controls.SLEEP: open(sleepTimerIntent()); break;
             case Controls.ASSISTANT: open(assistantIntent()); break;
             case Controls.HOME_SETTINGS: openLauncherSettings(); break;
@@ -3898,6 +3952,11 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
                 label = getString(R.string.status_sleep, (int) minutes);
             } else if (Controls.NIGHT.equals(key)) {
                 if (!Comfort.nightMode(this)) continue;
+            } else if (Controls.SPEAKER.equals(key)) {
+                // Always shown on a TV with a soundbar: lit with the soundbar on, struck through while it sleeps.
+                boolean on = speakerWake.soundbarOn();
+                icon = on ? R.drawable.ic_speaker_on : R.drawable.ic_speaker_off;
+                label = getString(on ? R.string.speaker_on : R.string.speaker_asleep);
             }
             want.add(new Object[]{key, icon, label});
         }
@@ -3921,7 +3980,8 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
             pill.setPaddingRelative(pad, 0, pad, 0);
             pill.setCompoundDrawablePadding(0);
             // What is on (connected, playing, counting down) is filled with the theme's accent; the rest is glass.
-            if (Controls.status(key)) {
+            boolean asleep = Controls.SPEAKER.equals(key) && w[1].equals(R.drawable.ic_speaker_off);
+            if (Controls.status(key) && !asleep) {
                 pill.setBackground(activePill());
                 pill.setTag(R.id.jiggle, Boolean.TRUE);   // marks it active for styleStatusPills
             } else {
@@ -4307,6 +4367,39 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
         watchNext.setLayoutParams(lp);
     }
 
+    /** speaker_wake: wakes a sleeping soundbar on ARC; null when off. */
+    private SpeakerWake speakerWake;
+
+    private void startSoundbar() {
+        speakerWake = new SpeakerWake(this);
+        speakerWake.setOnChange(this::updateStatusPills);   // the soundbar pill shows on or off at once
+        speakerWake.start();
+    }
+
+    /** Settings, Soundbar: turns the soundbar's features (waking, its pill and tile, its volume look) on or off. */
+    void setSoundbar(boolean on) {
+        SpeakerWake.setEnabled(this, on);
+        if (on && speakerWake == null) startSoundbar();
+        if (!on && speakerWake != null) {
+            speakerWake.stop();
+            speakerWake = null;
+        }
+        updateStatusPills();
+    }
+
+    /** A soundbar has been seen on HDMI ARC on this TV, for the Soundbar page's note. */
+    boolean soundbarSeen() {
+        return new SpeakerWake(this).hasSoundbar();
+    }
+
+    /** Control Center's Speaker control: wakes the soundbar now. */
+    private void wakeSpeaker() {
+        if (speakerWake == null) return;
+        int text = speakerWake.soundbarOn() ? R.string.speaker_on : speakerWake.wake() ? R.string.speaker_waking
+                : R.string.speaker_failed;
+        android.widget.Toast.makeText(this, text, android.widget.Toast.LENGTH_SHORT).show();
+    }
+
     // ---- AirPods (airpods_popup) ----------------------------------------------------------------------------
 
     /** Listens for AirPods being opened while Home is on screen; null unless airpods_popup is on. */
@@ -4626,7 +4719,10 @@ public class MainActivity extends Activity implements AppAdapter.TileListener {
 
     /** Shows the volume display on Home as it will look, at the current volume, for a moment. */
     void previewVolume() {
-        VolumeView.Look look = VolumeView.Look.read(this);
+        previewVolume(VolumeView.Look.read(this));
+    }
+
+    void previewVolume(VolumeView.Look look) {
         android.media.AudioManager audio = (android.media.AudioManager) getSystemService(AUDIO_SERVICE);
         if (volumePreview != null) root.removeView(volumePreview);
         VolumeView view = new VolumeView(this);
